@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="auth-shell">
+    <article class="card auth-card">
+        <h2>Login</h2>
+        <p class="muted">Admin login is preloaded with email <strong>tanishs1213@gmail.com</strong> and password <strong>admin</strong>.</p>
+        <form method="post" class="form">
+            <label>Email
+                <input type="email" name="email" required>
+            </label>
+            <label>Password
+                <input type="password" name="password" required>
+            </label>
+            <button type="submit">Login</button>
+        </form>
+        <p class="muted">Faculty users can create an account from the signup page.</p>
+    </article>
+</section>
+{% endblock %}

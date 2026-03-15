@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="auth-shell">
+    <article class="card auth-card">
+        <h2>Faculty Signup</h2>
+        <form method="post" class="form">
+            <label>Name
+                <input type="text" name="name" required>
+            </label>
+            <label>Email
+                <input type="email" name="email" required>
+            </label>
+            <label>Password
+                <input type="password" name="password" required>
+            </label>
+            <button type="submit">Create Faculty Account</button>
+        </form>
+    </article>
+</section>
+{% endblock %}

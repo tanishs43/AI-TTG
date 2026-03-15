@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="grid two-col">
+    <article class="card">
+        <h2>{{ faculty.name }}</h2>
+        <p class="muted">{{ faculty.email }}</p>
+        <h3>Add Subject</h3>
+        <form method="post" class="form">
+            <input type="hidden" name="action" value="add_subject">
+            <label>Subject Code
+                <input type="text" name="code" required>
+            </label>
+            <label>Subject Name
+                <input type="text" name="name" required>
+            </label>
+            <label>Semester
+                <input type="number" name="semester" min="1" value="1" required>
+            </label>
+            <label>Classes Per Week
+                <input type="number" name="weekly_slots" min="1" value="3" required>
+            </label>
+            <button type="submit">Add Subject</button>
+        </form>
+    </article>
+
+    <article class="card">
+        <h2>Register Subjects You Teach</h2>
+        <form method="post" class="form">
+            <input type="hidden" name="action" value="register_subject">
+            <label>Subject
+                <select name="subject_id" required>
+                    <option value="">Select subject</option>
+                    {% for subject in subjects %}
+                        <option value="{{ subject.id }}">Sem {{ subject.semester }} - {{ subject.code }} - {{ subject.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Section
+                <input type="text" name="preferred_section" value="A" required>
+            </label>
+            <button type="submit">Register Subject</button>
+        </form>
+    </article>
+</section>
+
+<section class="card">
+        <h2>Your Subject Registrations</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Section</th>
+                    <th>Classes Per Week</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in registrations %}
+                    <tr>
+                        <td>Sem {{ item.subject.semester }} - {{ item.subject.code }} - {{ item.subject.name }}</td>
+                        <td>{{ item.preferred_section }}</td>
+                        <td>{{ item.subject.weekly_slots }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="3">No subjects registered yet.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+</section>
+
+<section class="card">
+    <div class="section-head">
+        <div>
+            <h2>Your Timetable</h2>
+            {% if selected_batch %}
+                <p class="muted">{{ selected_batch.name }} | Semester {{ selected_batch.semester }}</p>
+            {% endif %}
+        </div>
+        <form method="get" class="inline-form">
+            <label>Saved Timetable
+                <select name="batch_id" onchange="this.form.submit()">
+                    {% for batch in batches %}
+                        <option value="{{ batch.id }}" {% if selected_batch and selected_batch.id == batch.id %}selected{% endif %}>
+                            {{ batch.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+    </div>
+    {% if not entries %}
+        <p>No timetable has been generated for you yet.</p>
+    {% else %}
+        <div class="table-wrap timetable-shell">
+            <table class="timetable-grid">
+                <thead>
+                    <tr>
+                        <th>Day / Time</th>
+                        {% for column in timetable_columns %}
+                            <th class="{% if column.type == 'break' %}break-head{% endif %}">{{ column.label|safe }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for day in days %}
+                        <tr>
+                            <th>{{ day }}</th>
+                            {% for column in timetable_columns %}
+                                {% if column.type == 'break' %}
+                                    <td class="break-cell">{{ column.value }}</td>
+                                {% else %}
+                                    {% set entry = timetable_map.get(day, {}).get(column.value) %}
+                                    <td class="class-cell">
+                                        {% if entry %}
+                                            <strong>{{ entry.subject.code }}</strong><br>
+                                            {{ entry.subject.name }}<br>
+                                            Sem {{ entry.subject.semester }}<br>
+                                            Section {{ entry.section }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

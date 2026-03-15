@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="grid stats">
+    <article class="card">
+        <h2>{{ faculty_count }}</h2>
+        <p>Faculty accounts</p>
+    </article>
+    <article class="card">
+        <h2>{{ subject_count }}</h2>
+        <p>Subjects</p>
+    </article>
+    <article class="card">
+        <h2>{{ registration_count }}</h2>
+        <p>Faculty subject registrations</p>
+    </article>
+    <article class="card">
+        <h2>{{ timetable_count }}</h2>
+        <p>Generated timetable entries</p>
+    </article>
+</section>
+
+<section class="grid two-col">
+    <article class="card">
+        <h2>Timetable Controls</h2>
+        <p class="muted">Choose a semester, then select the subjects from that semester for timetable generation.</p>
+        <form method="post" action="{{ url_for('main.generate') }}">
+            <label>Timetable Name
+                <input type="text" name="batch_name" placeholder="Semester timetable name">
+            </label>
+            <label>Semester
+                <select name="semester" id="semester-filter" required>
+                    <option value="">Select semester</option>
+                    {% for semester in semesters %}
+                        <option value="{{ semester }}">Semester {{ semester }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="subject-picker">
+                {% for subject in subjects %}
+                    <label class="check-row" data-semester="{{ subject.semester }}">
+                        <input type="checkbox" name="subject_ids" value="{{ subject.id }}">
+                        <span>Sem {{ subject.semester }} - {{ subject.code }} - {{ subject.name }} ({{ subject.weekly_slots }}/week)</span>
+                    </label>
+                {% else %}
+                    <p class="muted">No subjects available.</p>
+                {% endfor %}
+            </div>
+            <button type="submit" class="secondary">Generate Timetable</button>
+        </form>
+    </article>
+
+    <article class="card">
+        <h2>Saved Timetables</h2>
+        <div class="saved-list">
+            {% for batch in batches %}
+                <div class="saved-row {% if selected_batch and selected_batch.id == batch.id %}active{% endif %}">
+                    <div>
+                        <strong>{{ batch.name }}</strong><br>
+                        <span class="muted">Semester {{ batch.semester }}</span>
+                    </div>
+                    <div class="row-actions">
+                        <a href="{{ url_for('main.admin_dashboard', batch_id=batch.id) }}">View</a>
+                        <a href="{{ url_for('main.admin_timetable', batch_id=batch.id) }}">Open</a>
+                        <form method="post" action="{{ url_for('main.delete_timetable', batch_id=batch.id) }}">
+                            <button type="submit" class="danger">Delete</button>
+                        </form>
+                    </div>
+                </div>
+            {% else %}
+                <p class="muted">No saved timetables yet.</p>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<section class="grid two-col">
+    <article class="card">
+        <h2>Subjects</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Semester</th>
+                    <th>Classes Per Week</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for subject in subjects %}
+                    <tr>
+                        <td>{{ subject.code }}</td>
+                        <td>{{ subject.name }}</td>
+                        <td>{{ subject.semester }}</td>
+                        <td>{{ subject.weekly_slots }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="4">No subjects created yet.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </article>
+
+    <article class="card">
+        <h2>Faculty Subject Registrations</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Faculty</th>
+                    <th>Subject</th>
+                    <th>Section</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in registrations %}
+                    <tr>
+                        <td>{{ item.faculty.name }}</td>
+                        <td>Sem {{ item.subject.semester }} - {{ item.subject.code }} - {{ item.subject.name }}</td>
+                        <td>{{ item.preferred_section }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="3">No faculty registrations yet.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </article>
+</section>
+
+<section class="card">
+    <h2>Faculty</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for faculty in faculties %}
+                <tr>
+                    <td>{{ faculty.name }}</td>
+                    <td>{{ faculty.email }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="2">No faculty accounts yet.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<script>
+    const semesterFilter = document.getElementById("semester-filter");
+    const subjectRows = document.querySelectorAll("[data-semester]");
+
+    function syncSubjectVisibility() {
+        const selectedSemester = semesterFilter ? semesterFilter.value : "";
+        subjectRows.forEach((row) => {
+            const matches = !selectedSemester || row.dataset.semester === selectedSemester;
+            row.style.display = matches ? "flex" : "none";
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            if (!matches && checkbox) {
+                checkbox.checked = false;
+            }
+        });
+    }
+
+    if (semesterFilter) {
+        semesterFilter.addEventListener("change", syncSubjectVisibility);
+        syncSubjectVisibility();
+    }
+</script>
+{% endblock %}

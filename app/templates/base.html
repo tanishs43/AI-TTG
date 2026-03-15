@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Time Table Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <header class="header">
+        <div>
+            <h1>Time Table Generator</h1>
+            <p>Role-based timetable system for admin and faculty.</p>
+        </div>
+        <nav class="nav">
+            {% if session.get('role') == 'admin' %}
+                <a href="{{ url_for('main.admin_dashboard') }}">Admin Dashboard</a>
+                <a href="{{ url_for('main.admin_timetable') }}">Admin Timetable</a>
+                <a href="{{ url_for('main.logout') }}">Logout</a>
+            {% elif session.get('role') == 'faculty' %}
+                <a href="{{ url_for('main.faculty_dashboard') }}">Faculty Dashboard</a>
+                <a href="{{ url_for('main.logout') }}">Logout</a>
+            {% else %}
+                <a href="{{ url_for('main.login') }}">Login</a>
+                <a href="{{ url_for('main.signup') }}">Faculty Signup</a>
+            {% endif %}
+        </nav>
+    </header>
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <section class="flash-list">
+                    {% for category, message in messages %}
+                        <div class="flash {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </section>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>
