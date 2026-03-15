@@ -23,7 +23,6 @@ body {
         linear-gradient(180deg, #f8f3ea, var(--bg));
     color: var(--ink);
 }
-
 .header,
 .container {
     width: min(1120px, calc(100% - 2rem));
