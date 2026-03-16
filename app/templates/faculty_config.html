@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="grid two-col">
+    <article class="card">
+        <h2>Faculty Context</h2>
+        <p class="muted">Faculty members are configured inside a department. Select the department first to create, edit, or review faculty records.</p>
+        <form method="get" class="form">
+            <label>Department
+                <input type="text" name="department" list="department-list" value="{{ selected_department or '' }}" placeholder="e.g. CSE" required>
+                <datalist id="department-list">
+                    {% for department in available_departments %}
+                        <option value="{{ department }}"></option>
+                    {% endfor %}
+                </datalist>
+            </label>
+            <button type="submit">Load Faculty</button>
+        </form>
+        <p class="muted">Maximum normal weekly timetable capacity: {{ max_weekly_teaching_slots }} slots.</p>
+    </article>
+
+    <article class="card">
+        <h2>{% if edit_faculty %}Edit Faculty{% else %}Create Faculty{% endif %}</h2>
+        {% if not selected_department %}
+            <p>Select a department before configuring faculty.</p>
+        {% else %}
+            <form method="post" class="form">
+                <input type="hidden" name="department" value="{{ selected_department }}">
+                {% if edit_faculty %}
+                    <input type="hidden" name="edit_faculty_id" value="{{ edit_faculty.id }}">
+                {% endif %}
+                <label>Faculty Name
+                    <input type="text" name="name" value="{{ edit_faculty.name if edit_faculty else '' }}" required>
+                </label>
+                <label>Email
+                    <input type="email" name="email" value="{{ edit_faculty.email if edit_faculty and edit_faculty.email else '' }}">
+                </label>
+                <label>Department
+                    <input type="text" value="{{ selected_department }}" readonly>
+                </label>
+                <label>Subject Capabilities
+                    <select name="subject_ids" multiple size="8" required>
+                        {% set selected_subject_ids = edit_faculty.capabilities | map(attribute='subject_id') | list if edit_faculty else [] %}
+                        {% for subject in subjects %}
+                            <option value="{{ subject.id }}" {% if subject.id in selected_subject_ids %}selected{% endif %}>
+                                Sem {{ subject.semester }} | {{ subject.code }} | {{ subject.name }}
+                            </option>
+                        {% else %}
+                            <option disabled>No active subjects are configured for this department.</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>Maximum Weekly Teaching Load
+                    <input type="number" name="max_weekly_load" min="1" value="{{ edit_faculty.max_weekly_load if edit_faculty else 21 }}" required>
+                </label>
+                <label class="check-row">
+                    <input type="checkbox" name="is_active" {% if not edit_faculty or edit_faculty.is_active %}checked{% endif %}>
+                    <span>Faculty is active for timetable generation</span>
+                </label>
+                <button type="submit">{% if edit_faculty %}Update Faculty{% else %}Save Faculty{% endif %}</button>
+                {% if edit_faculty %}
+                    <a class="text-link" href="{{ url_for('main.admin_faculty', department=selected_department) }}">Cancel Edit</a>
+                {% endif %}
+            </form>
+        {% endif %}
+    </article>
+</section>
+
+<section class="card">
+    <div class="section-head">
+        <div>
+            <h2>Configured Faculty</h2>
+            {% if selected_department %}
+                <p class="muted">{{ selected_department }}</p>
+            {% endif %}
+        </div>
+    </div>
+    {% if not selected_department %}
+        <p>No faculty list is shown until a department is selected.</p>
+    {% elif not faculty_members %}
+        <p>No faculty members are configured yet for this department.</p>
+    {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Max Load</th>
+                    <th>Status</th>
+                    <th>Capabilities</th>
+                    <th>Edit</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for faculty in faculty_members %}
+                    <tr>
+                        <td>{{ faculty.name }}</td>
+                        <td>{{ faculty.email or "-" }}</td>
+                        <td>{{ faculty.max_weekly_load }}</td>
+                        <td>{{ "Active" if faculty.is_active else "Inactive" }}</td>
+                        <td>
+                            {% for capability in faculty.capabilities | sort(attribute='subject.code') %}
+                                {{ capability.subject.code }}{% if not loop.last %}, {% endif %}
+                            {% else %}
+                                -
+                            {% endfor %}
+                        </td>
+                        <td class="icon-cell">
+                            <a
+                                class="icon-button"
+                                href="{{ url_for('main.admin_faculty', department=selected_department, edit_faculty_id=faculty.id) }}"
+                                title="Edit faculty"
+                                aria-label="Edit faculty {{ faculty.name }}"
+                            >&#9998;</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</section>
+{% endblock %}

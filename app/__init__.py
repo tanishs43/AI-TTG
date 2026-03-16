@@ -2,7 +2,7 @@ from flask import Flask
 from sqlalchemy import inspect, text
 from werkzeug.security import generate_password_hash
 
-from .models import TimetableBatch, User, db
+from .models import FacultyCapability, TimetableBatch, User, db
 
 
 def create_app():
@@ -35,6 +35,22 @@ def ensure_schema():
         faculty_columns = {column["name"] for column in inspector.get_columns("faculty")}
         if ("name",) in faculty_unique_columns or "user_id" not in faculty_columns:
             rebuild_faculty_table(has_user_id="user_id" in faculty_columns)
+            faculty_columns = {column["name"] for column in inspector.get_columns("faculty")}
+        if "department" not in faculty_columns:
+            db.session.execute(
+                text("ALTER TABLE faculty ADD COLUMN department VARCHAR(120) NOT NULL DEFAULT 'General'")
+            )
+            db.session.commit()
+        if "max_weekly_load" not in faculty_columns:
+            db.session.execute(
+                text("ALTER TABLE faculty ADD COLUMN max_weekly_load INTEGER NOT NULL DEFAULT 21")
+            )
+            db.session.commit()
+        if "is_active" not in faculty_columns:
+            db.session.execute(
+                text("ALTER TABLE faculty ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
+            )
+            db.session.commit()
 
     if "faculty_subject_registration" in table_names:
         registration_columns = {
@@ -56,9 +72,74 @@ def ensure_schema():
                 text("ALTER TABLE subject ADD COLUMN semester INTEGER NOT NULL DEFAULT 1")
             )
             db.session.commit()
+        if "is_lab" not in subject_columns:
+            db.session.execute(
+                text("ALTER TABLE subject ADD COLUMN is_lab BOOLEAN NOT NULL DEFAULT 0")
+            )
+            db.session.commit()
+        if "is_subject_linked_lab" not in subject_columns:
+            db.session.execute(
+                text(
+                    "ALTER TABLE subject ADD COLUMN is_subject_linked_lab "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
+            db.session.commit()
+        if "department" not in subject_columns:
+            db.session.execute(
+                text("ALTER TABLE subject ADD COLUMN department VARCHAR(120) NOT NULL DEFAULT 'General'")
+            )
+            db.session.commit()
+        if "theory_lectures_per_week" not in subject_columns:
+            db.session.execute(
+                text(
+                    "ALTER TABLE subject ADD COLUMN theory_lectures_per_week "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+            db.session.execute(
+                text(
+                    "UPDATE subject SET theory_lectures_per_week = weekly_slots "
+                    "WHERE theory_lectures_per_week = 0 AND COALESCE(is_lab, 0) = 0"
+                )
+            )
+            db.session.commit()
+        if "has_lab" not in subject_columns:
+            db.session.execute(
+                text("ALTER TABLE subject ADD COLUMN has_lab BOOLEAN NOT NULL DEFAULT 0")
+            )
+            db.session.execute(text("UPDATE subject SET has_lab = COALESCE(is_lab, 0)"))
+            db.session.commit()
+        if "lab_sessions_per_week" not in subject_columns:
+            db.session.execute(
+                text(
+                    "ALTER TABLE subject ADD COLUMN lab_sessions_per_week "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+            db.session.execute(
+                text(
+                    "UPDATE subject SET lab_sessions_per_week = weekly_slots "
+                    "WHERE COALESCE(has_lab, 0) = 1 AND lab_sessions_per_week = 0"
+                )
+            )
+            db.session.commit()
+        if "is_priority" not in subject_columns:
+            db.session.execute(
+                text("ALTER TABLE subject ADD COLUMN is_priority BOOLEAN NOT NULL DEFAULT 0")
+            )
+            db.session.commit()
+        if "is_active" not in subject_columns:
+            db.session.execute(
+                text("ALTER TABLE subject ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
+            )
+            db.session.commit()
 
     if "timetable_batch" not in table_names:
         TimetableBatch.__table__.create(bind=db.engine)
+
+    if "faculty_capability" not in table_names:
+        FacultyCapability.__table__.create(bind=db.engine)
 
     if "timetable_entry" in table_names:
         entry_columns = {column["name"] for column in inspector.get_columns("timetable_entry")}

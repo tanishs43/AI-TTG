@@ -15,6 +15,8 @@
         <nav class="nav">
             {% if session.get('role') == 'admin' %}
                 <a href="{{ url_for('main.admin_dashboard') }}">Admin Dashboard</a>
+                <a href="{{ url_for('main.admin_subjects') }}">Subject Configuration</a>
+                <a href="{{ url_for('main.admin_faculty') }}">Faculty Configuration</a>
                 <a href="{{ url_for('main.admin_timetable') }}">Admin Timetable</a>
                 <a href="{{ url_for('main.logout') }}">Logout</a>
             {% elif session.get('role') == 'faculty' %}
