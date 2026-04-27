@@ -29,6 +29,14 @@ def ensure_schema():
     inspector = inspect(db.engine)
     table_names = set(inspector.get_table_names())
 
+    if "user" in table_names:
+        user_columns = {column["name"] for column in inspector.get_columns("user")}
+        if "department" not in user_columns:
+            db.session.execute(
+                text("ALTER TABLE user ADD COLUMN department VARCHAR(120) NOT NULL DEFAULT 'General'")
+            )
+            db.session.commit()
+
     if "faculty" in table_names:
         faculty_uniques = inspector.get_unique_constraints("faculty")
         faculty_unique_columns = {tuple(sorted(item.get("column_names") or [])) for item in faculty_uniques}
@@ -85,6 +93,11 @@ def ensure_schema():
                 )
             )
             db.session.commit()
+        if "is_free_lecture" not in subject_columns:
+            db.session.execute(
+                text("ALTER TABLE subject ADD COLUMN is_free_lecture BOOLEAN NOT NULL DEFAULT 0")
+            )
+            db.session.commit()
         if "department" not in subject_columns:
             db.session.execute(
                 text("ALTER TABLE subject ADD COLUMN department VARCHAR(120) NOT NULL DEFAULT 'General'")
@@ -124,14 +137,28 @@ def ensure_schema():
                 )
             )
             db.session.commit()
-        if "is_priority" not in subject_columns:
+        if "is_priority" in subject_columns and "priority" not in subject_columns:
+            # Migrate boolean is_priority -> integer priority (1=high, 3=normal, 5=low)
             db.session.execute(
-                text("ALTER TABLE subject ADD COLUMN is_priority BOOLEAN NOT NULL DEFAULT 0")
+                text("ALTER TABLE subject ADD COLUMN priority INTEGER NOT NULL DEFAULT 3")
+            )
+            db.session.execute(
+                text("UPDATE subject SET priority = CASE WHEN is_priority = 1 THEN 1 ELSE 3 END")
+            )
+            db.session.commit()
+        elif "priority" not in subject_columns:
+            db.session.execute(
+                text("ALTER TABLE subject ADD COLUMN priority INTEGER NOT NULL DEFAULT 3")
             )
             db.session.commit()
         if "is_active" not in subject_columns:
             db.session.execute(
                 text("ALTER TABLE subject ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
+            )
+            db.session.commit()
+        if "short_name" not in subject_columns:
+            db.session.execute(
+                text("ALTER TABLE subject ADD COLUMN short_name VARCHAR(50)")
             )
             db.session.commit()
 
@@ -142,8 +169,15 @@ def ensure_schema():
         FacultyCapability.__table__.create(bind=db.engine)
 
     if "timetable_entry" in table_names:
-        entry_columns = {column["name"] for column in inspector.get_columns("timetable_entry")}
-        if "batch_id" not in entry_columns:
+        entry_columns = inspector.get_columns("timetable_entry")
+        entry_column_names = {column["name"] for column in entry_columns}
+        faculty_id_column = next(
+            (column for column in entry_columns if column["name"] == "faculty_id"),
+            None,
+        )
+        if "batch_id" not in entry_column_names or (
+            faculty_id_column is not None and not faculty_id_column.get("nullable", False)
+        ) or "lab_batch" not in entry_column_names:
             rebuild_timetable_entry_table()
         attach_legacy_entries_to_batch()
 
@@ -181,6 +215,12 @@ def rebuild_faculty_table(has_user_id):
 
 
 def rebuild_timetable_entry_table():
+    inspector = inspect(db.engine)
+    old_columns = {column["name"] for column in inspector.get_columns("timetable_entry")}
+    select_batch_id = "batch_id" if "batch_id" in old_columns else "NULL AS batch_id"
+    select_lab_batch = "lab_batch" if "lab_batch" in old_columns else "NULL AS lab_batch"
+    select_room = "room" if "room" in old_columns else "NULL AS room"
+
     db.session.execute(text("PRAGMA foreign_keys=OFF"))
     db.session.execute(text("ALTER TABLE timetable_entry RENAME TO timetable_entry_old"))
     db.session.execute(
@@ -192,21 +232,22 @@ def rebuild_timetable_entry_table():
                 day VARCHAR(20) NOT NULL,
                 time_slot VARCHAR(30) NOT NULL,
                 section VARCHAR(30) NOT NULL,
-                faculty_id INTEGER NOT NULL,
+                lab_batch VARCHAR(30),
+                room VARCHAR(50),
+                faculty_id INTEGER,
                 subject_id INTEGER NOT NULL,
                 FOREIGN KEY(batch_id) REFERENCES timetable_batch (id),
                 FOREIGN KEY(faculty_id) REFERENCES faculty (id),
-                FOREIGN KEY(subject_id) REFERENCES subject (id),
-                CONSTRAINT uq_batch_section_day_time UNIQUE (batch_id, day, time_slot, section)
+                FOREIGN KEY(subject_id) REFERENCES subject (id)
             )
             """
         )
     )
     db.session.execute(
         text(
-            """
-            INSERT INTO timetable_entry (id, day, time_slot, section, faculty_id, subject_id)
-            SELECT id, day, time_slot, section, faculty_id, subject_id
+            f"""
+            INSERT INTO timetable_entry (id, batch_id, day, time_slot, section, lab_batch, room, faculty_id, subject_id)
+            SELECT id, {select_batch_id}, day, time_slot, section, {select_lab_batch}, {select_room}, faculty_id, subject_id
             FROM timetable_entry_old
             """
         )
@@ -244,8 +285,17 @@ def seed_admin():
         admin.name = "Admin"
         admin.password_hash = password_hash
         admin.role = "admin"
+        admin.department = admin.department or "General"
         db.session.commit()
         return
 
-    db.session.add(User(name="Admin", email=admin_email, password_hash=password_hash, role="admin"))
+    db.session.add(
+        User(
+            name="Admin",
+            email=admin_email,
+            password_hash=password_hash,
+            role="admin",
+            department="General",
+        )
+    )
     db.session.commit()

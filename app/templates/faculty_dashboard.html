@@ -80,21 +80,51 @@
                     {% for day in days %}
                         <tr>
                             <th>{{ day }}</th>
+                            {% set skip = namespace(value=False) %}
                             {% for column in timetable_columns %}
-                                {% if column.type == 'break' %}
+                                {% if skip.value %}
+                                    {% set skip.value = False %}
+                                {% elif column.type == 'break' %}
                                     <td class="break-cell">{{ column.value }}</td>
                                 {% else %}
-                                    {% set entry = timetable_map.get(day, {}).get(column.value) %}
-                                    <td class="class-cell">
-                                        {% if entry %}
-                                            <strong>{{ entry.subject.name }}</strong><br>
-                                            {{ entry.subject.department }}<br>
-                                            Sem {{ entry.subject.semester }}<br>
-                                            Section {{ entry.section }}
-                                        {% else %}
-                                            -
+                                    {% set entries = timetable_map.get(day, {}).get(column.value) %}
+                                    {% set is_lab_start = namespace(value=False) %}
+                                    
+                                    {% if entries %}
+                                        {% set next_index = loop.index0 + 1 %}
+                                        {% if next_index < timetable_columns|length %}
+                                            {% set next_column = timetable_columns[next_index] %}
+                                            {% if next_column.type != 'break' %}
+                                                {% set next_entries = timetable_map.get(day, {}).get(next_column.value) %}
+                                                {% if next_entries and next_entries[0].subject_id == entries[0].subject_id and entries[0].lab_batch %}
+                                                    {# This and the next block are exactly the same lab session! #}
+                                                    {% set is_lab_start.value = True %}
+                                                    {% set skip.value = True %}
+                                                {% endif %}
+                                            {% endif %}
                                         {% endif %}
-                                    </td>
+                                    {% endif %}
+
+                                    {% if is_lab_start.value %}
+                                        <td class="class-cell lab-cell" colspan="2">
+                                            <strong>{{ entries[0].subject.name }} (LAB)</strong><br>
+                                            {{ entries[0].subject.department }}<br>
+                                            Sem {{ entries[0].subject.semester }}<br>
+                                            Section {{ entries[0].section }} ({{ entries[0].lab_batch }}) [{{ entries[0].room }}]
+                                        </td>
+                                    {% else %}
+                                        <td class="class-cell">
+                                            {% if entries %}
+                                                {% set entry = entries[0] %}
+                                                <strong>{{ entry.subject.name }}</strong><br>
+                                                {{ entry.subject.department }}<br>
+                                                Sem {{ entry.subject.semester }}<br>
+                                                Section {{ entry.section }}
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
                                 {% endif %}
                             {% endfor %}
                         </tr>

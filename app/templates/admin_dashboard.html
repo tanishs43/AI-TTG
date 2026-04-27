@@ -25,14 +25,7 @@
         <h2>Generation Context</h2>
         <p class="muted">Select the department and semester first. Timetable generation is blocked until active subjects are configured in the subject module for that academic context.</p>
         <form method="get" class="form">
-            <label>Department
-                <input type="text" name="department" list="department-list" value="{{ selected_department or '' }}" placeholder="e.g. CSE" required>
-                <datalist id="department-list">
-                    {% for department in available_departments %}
-                        <option value="{{ department }}"></option>
-                    {% endfor %}
-                </datalist>
-            </label>
+            <input type="hidden" name="department" value="{{ selected_department }}">
             <label>Semester
                 <select name="semester" required>
                     <option value="">Select semester</option>
@@ -45,7 +38,7 @@
         </form>
         <p class="muted">Weekly teaching capacity: {{ max_weekly_teaching_slots }} slots.</p>
         <p><a href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester) }}">Open Subject Configuration</a></p>
-        <p><a href="{{ url_for('main.admin_faculty', department=selected_department) }}">Open Faculty Configuration</a></p>
+        <p><a href="{{ url_for('main.admin_faculty') }}">Open Faculty Configuration</a></p>
     </article>
 
     <article class="card">
@@ -56,12 +49,56 @@
             <p>No active subjects are configured for {{ selected_department }} Semester {{ selected_semester }}.</p>
             <p><a href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester) }}">Configure subjects first</a></p>
         {% else %}
-            <form method="post" action="{{ url_for('main.generate') }}">
+            <form id="generate-form" method="post" action="{{ url_for('main.generate') }}" onsubmit="return handleGenerateSubmit(event)">
+                <input type="hidden" name="force_replace" id="force_replace" value="false">
                 <input type="hidden" name="department" value="{{ selected_department }}">
                 <input type="hidden" name="semester" value="{{ selected_semester }}">
                 <label>Timetable Name
                     <input type="text" name="batch_name" placeholder="{{ selected_department }} Semester {{ selected_semester }} Timetable">
                 </label>
+                <label style="margin-bottom: 5px;">Select Sections</label>
+                <style>
+                    .section-strip {
+                        display: flex;
+                        background: var(--bg-color);
+                        border-radius: 6px;
+                        overflow: hidden;
+                        border: 1px solid #ccc;
+                        margin-bottom: 15px;
+                    }
+                    .section-strip label {
+                        flex: 1;
+                        text-align: center;
+                        margin: 0 !important;
+                        border-right: 1px solid #ccc;
+                        cursor: pointer;
+                        padding: 0;
+                    }
+                    .section-strip label:last-child {
+                        border-right: none;
+                    }
+                    .section-strip input[type="checkbox"] {
+                        display: none;
+                    }
+                    .section-strip span {
+                        display: block;
+                        padding: 10px;
+                        font-weight: 600;
+                        color: var(--text-muted);
+                        transition: all 0.2s ease;
+                    }
+                    .section-strip input[type="checkbox"]:checked + span {
+                        background: var(--primary-color);
+                        color: white;
+                    }
+                </style>
+                <div class="section-strip">
+                    <label><input type="checkbox" name="sections[]" value="A" checked> <span>Section A</span></label>
+                    <label><input type="checkbox" name="sections[]" value="B" checked> <span>Section B</span></label>
+                    <label><input type="checkbox" name="sections[]" value="C"> <span>Section C</span></label>
+                    <label><input type="checkbox" name="sections[]" value="D"> <span>Section D</span></label>
+                    <label><input type="checkbox" name="sections[]" value="E"> <span>Section E</span></label>
+                </div>
                 <div class="subject-picker">
                     {% for subject in subjects %}
                         <label class="check-row">
@@ -71,8 +108,11 @@
                                 {% if subject.has_lab %}
                                     | Lab {{ subject.lab_sessions_per_week }}/week
                                 {% endif %}
-                                {% if subject.is_priority %}
-                                    | Priority
+                                {% if subject.is_free_lecture %}
+                                    | Free Lecture
+                                {% endif %}
+                                {% if subject.priority and subject.priority <= 2 %}
+                                    | High Priority
                                 {% endif %}
                             </span>
                         </label>
@@ -82,6 +122,63 @@
             </form>
         {% endif %}
     </article>
+
+    <!-- Duplicate Notification Popup -->
+    <div id="duplicate-popup" class="card" style="display:none; position:fixed; bottom:24px; right:24px; width:360px; z-index:1000; box-shadow: var(--shadow-lg); border-left: 4px solid var(--warning); padding: 20px;">
+        <h3 style="margin: 0 0 8px 0; font-size:1.1rem; color: var(--text-primary);">Duplicate Detected</h3>
+        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:16px;">Timetable for one or more selected sections already exists.</p>
+        <div style="display:flex; gap:12px;">
+            <button type="button" class="danger" onclick="confirmReplace()" style="flex:1;">Replace</button>
+            <button type="button" class="secondary" onclick="cancelReplace()" style="flex:1; background:var(--bg-color); color:var(--text-primary); border: 1px solid var(--border-color);">Keep Existing</button>
+        </div>
+    </div>
+
+    <script>
+    async function handleGenerateSubmit(event) {
+        const forceReplaceInput = document.getElementById('force_replace');
+        if (forceReplaceInput.value === 'true') {
+            return true; // Let form submit
+        }
+        
+        event.preventDefault();
+        const form = event.target;
+        const formData = new FormData(form);
+        const sections = formData.getAll('sections[]');
+        const semester = formData.get('semester');
+        
+        if (!semester || sections.length === 0) {
+            form.submit();
+            return false;
+        }
+
+        try {
+            const response = await fetch("{{ url_for('main.check_duplicate') }}", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ semester: parseInt(semester), sections: sections })
+            });
+            const data = await response.json();
+            if (data.exists) {
+                document.getElementById('duplicate-popup').style.display = 'block';
+            } else {
+                form.submit();
+            }
+        } catch (e) {
+            form.submit();
+        }
+        return false;
+    }
+
+    function confirmReplace() {
+        document.getElementById('force_replace').value = 'true';
+        document.getElementById('duplicate-popup').style.display = 'none';
+        document.getElementById('generate-form').submit();
+    }
+
+    function cancelReplace() {
+        document.getElementById('duplicate-popup').style.display = 'none';
+    }
+    </script>
 </section>
 
 <section class="grid two-col">

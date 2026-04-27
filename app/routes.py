@@ -1,4 +1,6 @@
 from collections import defaultdict
+import math
+import re
 from types import SimpleNamespace
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
@@ -32,6 +34,21 @@ def current_user():
     return User.query.get(user_id)
 
 
+def admin_department_context(user=None):
+    user = user or current_user()
+    if not user or user.role != "admin":
+        return ""
+
+    department = normalized_department(session.get("department") or user.department)
+    if not department:
+        department = "General"
+    if user.department != department:
+        user.department = department
+        db.session.commit()
+    session["department"] = department
+    return department
+
+
 def faculty_timetable_rows(faculty_id, batch_id):
     if not batch_id:
         return [], defaultdict(dict)
@@ -41,9 +58,9 @@ def faculty_timetable_rows(faculty_id, batch_id):
         .order_by(TimetableEntry.day, TimetableEntry.time_slot)
         .all()
     )
-    timetable_map = defaultdict(dict)
+    timetable_map = defaultdict(lambda: defaultdict(list))
     for entry in entries:
-        timetable_map[entry.day][entry.time_slot] = entry
+        timetable_map[entry.day][entry.time_slot].append(entry)
     return entries, timetable_map
 
 
@@ -67,6 +84,31 @@ def normalized_department(value):
     return " ".join((value or "").split()).strip()
 
 
+def normalized_title_case(value):
+    words = " ".join((value or "").split()).strip().split(" ")
+    return " ".join(word[:1].upper() + word[1:].lower() for word in words if word)
+
+
+def normalized_subject_code(value):
+    return " ".join((value or "").split()).strip().upper()
+
+
+def is_valid_subject_code(value):
+    return bool(re.fullmatch(r"[A-Z0-9]+", value or ""))
+
+
+def next_free_lecture_code(subject_id=None):
+    candidate = "NA"
+    suffix = 2
+
+    while True:
+        existing_subject = Subject.query.filter_by(code=candidate).first()
+        if not existing_subject or existing_subject.id == subject_id:
+            return candidate
+        candidate = f"NA{suffix}"
+        suffix += 1
+
+
 def subject_total_demand(theory_lectures, has_lab, lab_sessions):
     return theory_lectures + ((lab_sessions if has_lab else 0) * 2)
 
@@ -88,13 +130,17 @@ def active_subjects_query(department, semester):
 
 
 def available_departments():
-    department_rows = (
-        db.session.query(Subject.department)
-        .distinct()
-        .order_by(Subject.department)
-        .all()
-    )
-    return [row[0] for row in department_rows if row[0]]
+    subject_departments = {
+        row[0]
+        for row in db.session.query(Subject.department).distinct().all()
+        if row[0]
+    }
+    faculty_departments = {
+        row[0]
+        for row in db.session.query(Faculty.department).distinct().all()
+        if row[0]
+    }
+    return sorted(subject_departments | faculty_departments)
 
 
 def available_batches():
@@ -104,7 +150,11 @@ def available_batches():
 
 
 def current_subject_context():
-    department = normalized_department(request.values.get("department", ""))
+    user = current_user()
+    if user and user.role == "admin":
+        department = admin_department_context(user)
+    else:
+        department = normalized_department(request.values.get("department", ""))
     semester = request.values.get("semester", type=int)
     if semester not in SEMESTER_OPTIONS:
         semester = None
@@ -126,7 +176,10 @@ def selected_edit_faculty():
     faculty_id = request.values.get("edit_faculty_id", type=int)
     if not faculty_id:
         return None
-    return Faculty.query.get(faculty_id)
+    department = admin_department_context()
+    if not department:
+        return None
+    return Faculty.query.filter_by(id=faculty_id, department=department).first()
 
 
 def department_subjects(department):
@@ -134,6 +187,16 @@ def department_subjects(department):
         return []
     return (
         Subject.query.filter_by(department=department, is_active=True)
+        .order_by(Subject.semester.asc(), Subject.code.asc())
+        .all()
+    )
+
+
+def department_capability_subjects(department):
+    if not department:
+        return []
+    return (
+        Subject.query.filter_by(department=department, is_active=True, is_free_lecture=False)
         .order_by(Subject.semester.asc(), Subject.code.asc())
         .all()
     )
@@ -163,6 +226,17 @@ def active_faculty_capabilities_query(department):
 def faculty_generation_candidates(subjects, section="A"):
     candidates = []
     for subject in subjects:
+        if getattr(subject, "is_free_lecture", False):
+            candidates.append(
+                SimpleNamespace(
+                    faculty_id=None,
+                    faculty=SimpleNamespace(id=None, name="Free Lecture", max_weekly_load=0),
+                    subject_id=subject.id,
+                    subject=subject,
+                    preferred_section=section,
+                )
+            )
+            continue
         subject_capabilities = (
             active_faculty_capabilities_query(subject.department)
             .filter(FacultyCapability.subject_id == subject.id)
@@ -185,6 +259,8 @@ def faculty_generation_candidates(subjects, section="A"):
 def uncovered_subject_codes(subjects):
     uncovered = []
     for subject in subjects:
+        if getattr(subject, "is_free_lecture", False):
+            continue
         has_active_faculty = (
             active_faculty_capabilities_query(subject.department)
             .filter(FacultyCapability.subject_id == subject.id)
@@ -234,7 +310,13 @@ def signup():
             flash("Signup failed. Email may already exist.", "error")
             return redirect(url_for("main.signup"))
 
-        user = User(name=name, email=email, password_hash=generate_password_hash(password), role="faculty")
+        user = User(
+            name=name,
+            email=email,
+            password_hash=generate_password_hash(password),
+            role="faculty",
+            department="General",
+        )
         faculty = Faculty(name=name, email=email, user=user)
         db.session.add_all([user, faculty])
 
@@ -263,6 +345,7 @@ def login():
 
         session["user_id"] = user.id
         session["role"] = user.role
+        session["department"] = normalized_department(user.department) or "General"
 
         if user.role == "admin":
             return redirect(url_for("main.admin_dashboard"))
@@ -351,15 +434,33 @@ def admin_subjects():
         edit_subject = Subject.query.get(edit_subject_id) if edit_subject_id else None
         department = normalized_department(request.form.get("department", ""))
         semester = request.form.get("semester", type=int)
-        code = request.form.get("code", "").strip().upper()
-        name = request.form.get("name", "").strip()
+        raw_code = normalized_subject_code(request.form.get("code", ""))
+        name = normalized_title_case(request.form.get("name", ""))
+        short_name = request.form.get("short_name", "").strip() or None
         theory_lectures = request.form.get("theory_lectures_per_week", type=int)
         has_lab = request.form.get("has_lab") == "on"
+        standalone_lab = request.form.get("standalone_lab") == "on"
+        is_free_lecture = request.form.get("is_free_lecture") == "on"
         lab_sessions = request.form.get("lab_sessions_per_week", type=int)
 
         if not department or semester not in SEMESTER_OPTIONS:
             flash("Select a department and semester before configuring subjects.", "error")
             return redirect(url_for("main.admin_subjects"))
+
+        if standalone_lab:
+            has_lab = True
+            theory_lectures = 0
+        if is_free_lecture:
+            has_lab = False
+            standalone_lab = False
+            lab_sessions = 0
+            code = (
+                next_free_lecture_code(edit_subject.id if edit_subject else None)
+                if raw_code in {"", "NA"}
+                else raw_code
+            )
+        else:
+            code = raw_code
 
         theory_lectures = max(theory_lectures or 0, 0)
         lab_sessions = max(lab_sessions or 0, 0)
@@ -367,6 +468,16 @@ def admin_subjects():
 
         if not code or not name:
             flash("Subject code and subject name are required.", "error")
+            return redirect(
+                url_for(
+                    "main.admin_subjects",
+                    department=department,
+                    semester=semester,
+                    edit_subject_id=edit_subject_id,
+                )
+            )
+        if not is_valid_subject_code(code):
+            flash("Subject code must contain only letters and numbers, and is saved in uppercase.", "error")
             return redirect(
                 url_for(
                     "main.admin_subjects",
@@ -396,22 +507,47 @@ def admin_subjects():
                     edit_subject_id=edit_subject_id,
                 )
             )
-        if total_demand > MAX_WEEKLY_TEACHING_SLOTS:
-            flash("This subject alone exceeds the weekly teaching capacity.", "error")
-            return redirect(
-                url_for(
-                    "main.admin_subjects",
-                    department=department,
-                    semester=semester,
-                    edit_subject_id=edit_subject_id,
-                )
-            )
         if not validate_subject_capacity(
             department,
             semester,
             total_demand,
             subject_id=edit_subject.id if edit_subject else None,
         ):
+            if not edit_subject:
+                # New subject — show conflict resolution page
+                lower_priority_subjects = (
+                    Subject.query.filter(
+                        Subject.department == department,
+                        Subject.semester == semester,
+                        Subject.is_active.is_(True),
+                        Subject.theory_lectures_per_week > 0,
+                    )
+                    .order_by(Subject.priority.desc(), Subject.name.asc())
+                    .all()
+                )
+                return render_template(
+                    "subject_conflict.html",
+                    department=department,
+                    semester=semester,
+                    pending_code=code,
+                    pending_name=name,
+                    pending_short_name=short_name,
+                    pending_theory=theory_lectures,
+                    pending_has_lab=has_lab,
+                    pending_lab_sessions=lab_sessions,
+                    pending_is_free_lecture=is_free_lecture,
+                    pending_standalone_lab=standalone_lab,
+                    pending_priority=request.form.get("priority", type=int) or 3,
+                    lower_priority_subjects=lower_priority_subjects,
+                    max_weekly_teaching_slots=MAX_WEEKLY_TEACHING_SLOTS,
+                    configured_demand=sum(
+                        subject_record_total_demand(s)
+                        for s in Subject.query.filter_by(
+                            department=department, semester=semester, is_active=True
+                        ).all()
+                    ),
+                    needed_demand=total_demand,
+                )
             flash(
                 "Saving this subject would exceed the weekly teaching capacity for the selected department and semester.",
                 "warning",
@@ -428,15 +564,17 @@ def admin_subjects():
         subject = edit_subject or Subject()
         subject.code = code
         subject.name = name
+        subject.short_name = short_name
         subject.department = department
         subject.semester = semester
-        subject.weekly_slots = theory_lectures
+        subject.weekly_slots = theory_lectures if theory_lectures > 0 else (lab_sessions if has_lab else 0)
         subject.theory_lectures_per_week = theory_lectures
         subject.has_lab = has_lab
         subject.lab_sessions_per_week = lab_sessions if has_lab else 0
         subject.is_lab = has_lab and theory_lectures == 0
-        subject.is_subject_linked_lab = has_lab
-        subject.is_priority = False
+        subject.is_subject_linked_lab = has_lab and theory_lectures > 0
+        subject.is_free_lecture = is_free_lecture
+        subject.priority = request.form.get("priority", type=int) or 3
         subject.is_active = True
         db.session.add(subject)
         try:
@@ -494,6 +632,123 @@ def delete_subject(subject_id):
     return redirect(url_for("main.admin_subjects", department=department, semester=semester))
 
 
+@main.route("/admin/subjects/resolve-conflict", methods=["POST"])
+def resolve_slot_conflict():
+    """
+    Admin selects a lower-priority subject whose lab sessions will be reduced
+    to make room for the new pending subject.
+    """
+    user = current_user()
+    if not user or user.role != "admin":
+        flash("Admin login required.", "error")
+        return redirect(url_for("main.login"))
+
+    department = normalized_department(request.form.get("department", ""))
+    semester = request.form.get("semester", type=int)
+    sacrifice_subject_ids = request.form.getlist("sacrifice_subject_ids", type=int)
+
+    # Pending new subject data from the conflict form
+    pending_code = normalized_subject_code(request.form.get("pending_code", ""))
+    pending_name = normalized_title_case(request.form.get("pending_name", ""))
+    pending_short_name = request.form.get("pending_short_name", "").strip() or None
+    pending_theory = max(request.form.get("pending_theory", type=int) or 0, 0)
+    pending_has_lab = request.form.get("pending_has_lab") == "true"
+    pending_lab_sessions = max(request.form.get("pending_lab_sessions", type=int) or 0, 0)
+    pending_is_free_lecture = request.form.get("pending_is_free_lecture") == "true"
+    pending_standalone_lab = request.form.get("pending_standalone_lab") == "true"
+    pending_priority = request.form.get("pending_priority", type=int) or 3
+
+    if not department or semester not in SEMESTER_OPTIONS:
+        flash("Invalid department or semester context.", "error")
+        return redirect(url_for("main.admin_subjects"))
+
+    if not sacrifice_subject_ids:
+        flash("Please select at least one subject to adjust.", "error")
+        return redirect(url_for("main.admin_subjects", department=department, semester=semester))
+
+    sacrifice_subjects = Subject.query.filter(
+        Subject.id.in_(sacrifice_subject_ids),
+        Subject.department == department,
+    ).all()
+    if not sacrifice_subjects:
+        flash("Selected subjects not found.", "error")
+        return redirect(url_for("main.admin_subjects", department=department, semester=semester))
+
+    # Calculate total slots to free
+    pending_total_demand = subject_total_demand(pending_theory, pending_has_lab, pending_lab_sessions)
+    current_total = sum(
+        subject_record_total_demand(s)
+        for s in Subject.query.filter_by(
+            department=department, semester=semester, is_active=True
+        ).all()
+    )
+    slots_to_free = (current_total + pending_total_demand) - MAX_WEEKLY_TEACHING_SLOTS
+
+    if slots_to_free <= 0:
+        flash("Slots are already available. No adjustment needed.", "info")
+    else:
+        n = len(sacrifice_subjects)
+        base = slots_to_free // n        # each subject loses at least this many lectures
+        remainder = slots_to_free % n   # first `remainder` subjects lose one extra
+
+        for idx, sacrifice_subject in enumerate(sacrifice_subjects):
+            to_remove = base + (1 if idx < remainder else 0)
+            old_theory = sacrifice_subject.theory_lectures_per_week
+            new_theory = max(old_theory - to_remove, 0)
+            actual_freed = old_theory - new_theory
+
+            sacrifice_subject.theory_lectures_per_week = new_theory
+            sacrifice_subject.weekly_slots = (
+                new_theory if new_theory > 0
+                else (sacrifice_subject.lab_sessions_per_week if sacrifice_subject.has_lab else 0)
+            )
+            if new_theory == 0 and sacrifice_subject.has_lab:
+                sacrifice_subject.is_subject_linked_lab = False
+                sacrifice_subject.is_lab = True
+
+            flash(
+                f'"{sacrifice_subject.name}": theory reduced from {old_theory} → {new_theory}/week '
+                f"({actual_freed} slot(s) freed).",
+                "warning",
+            )
+
+
+    # Now save the new pending subject
+    if pending_standalone_lab:
+        pending_has_lab = True
+        pending_theory = 0
+    if pending_is_free_lecture:
+        pending_has_lab = False
+        pending_lab_sessions = 0
+
+    new_subject = Subject(
+        code=pending_code,
+        name=pending_name,
+        short_name=pending_short_name,
+        department=department,
+        semester=semester,
+        weekly_slots=pending_theory if pending_theory > 0 else (pending_lab_sessions if pending_has_lab else 0),
+        theory_lectures_per_week=pending_theory,
+        has_lab=pending_has_lab,
+        lab_sessions_per_week=pending_lab_sessions if pending_has_lab else 0,
+        is_lab=pending_has_lab and pending_theory == 0,
+        is_subject_linked_lab=pending_has_lab and pending_theory > 0,
+        is_free_lecture=pending_is_free_lecture,
+        priority=pending_priority,
+        is_active=True,
+    )
+    db.session.add(new_subject)
+
+    try:
+        db.session.commit()
+        flash(f'Subject "{pending_name}" added successfully.', "success")
+    except Exception as exc:
+        db.session.rollback()
+        flash(f"Could not save changes: {exc}", "error")
+
+    return redirect(url_for("main.admin_subjects", department=department, semester=semester))
+
+
 @main.route("/admin/faculty", methods=["GET", "POST"])
 def admin_faculty():
     user = current_user()
@@ -501,66 +756,51 @@ def admin_faculty():
         flash("Admin login required.", "error")
         return redirect(url_for("main.login"))
 
-    selected_department = current_department()
+    selected_department = admin_department_context(user)
     edit_faculty = selected_edit_faculty()
 
     if request.method == "POST":
         edit_faculty_id = request.form.get("edit_faculty_id", type=int)
-        edit_faculty = Faculty.query.get(edit_faculty_id) if edit_faculty_id else None
-        department = normalized_department(request.form.get("department", ""))
-        name = request.form.get("name", "").strip()
-        email = request.form.get("email", "").strip().lower() or None
+        edit_faculty = (
+            Faculty.query.filter_by(id=edit_faculty_id, department=selected_department).first()
+            if edit_faculty_id
+            else None
+        )
+        if edit_faculty_id and not edit_faculty:
+            flash("That faculty record is not available in your department scope.", "error")
+            return redirect(url_for("main.admin_faculty"))
+        department = selected_department
+        name = normalized_title_case(request.form.get("name", ""))
+        departmental_id = request.form.get("departmental_id", "").strip()
         max_weekly_load = max(request.form.get("max_weekly_load", type=int) or 0, 0)
         is_active = request.form.get("is_active") == "on"
         selected_subject_ids = faculty_capability_subject_ids()
 
         if not department:
-            flash("Select a department before configuring faculty.", "error")
+            flash("Admin department context is missing.", "error")
             return redirect(url_for("main.admin_faculty"))
         if not name:
             flash("Faculty name is required.", "error")
-            return redirect(
-                url_for(
-                    "main.admin_faculty",
-                    department=department,
-                    edit_faculty_id=edit_faculty_id,
-                )
-            )
+            return redirect(url_for("main.admin_faculty", edit_faculty_id=edit_faculty_id))
+        if not departmental_id:
+            flash("Departmental ID is required.", "error")
+            return redirect(url_for("main.admin_faculty", edit_faculty_id=edit_faculty_id))
         if not selected_subject_ids:
             flash("Select at least one subject capability before saving a faculty record.", "error")
-            return redirect(
-                url_for(
-                    "main.admin_faculty",
-                    department=department,
-                    edit_faculty_id=edit_faculty_id,
-                )
-            )
-
-        valid_subject_ids = {subject.id for subject in department_subjects(department)}
+            return redirect(url_for("main.admin_faculty", edit_faculty_id=edit_faculty_id))
+        valid_subject_ids = {subject.id for subject in department_capability_subjects(department)}
         if not selected_subject_ids.issubset(valid_subject_ids):
             flash("Faculty capability selection must only include active subjects from the selected department.", "error")
-            return redirect(
-                url_for(
-                    "main.admin_faculty",
-                    department=department,
-                    edit_faculty_id=edit_faculty_id,
-                )
-            )
+            return redirect(url_for("main.admin_faculty", edit_faculty_id=edit_faculty_id))
 
-        existing_email_faculty = Faculty.query.filter_by(email=email).first() if email else None
-        if existing_email_faculty and (not edit_faculty or existing_email_faculty.id != edit_faculty.id):
-            flash("That faculty email is already in use.", "error")
-            return redirect(
-                url_for(
-                    "main.admin_faculty",
-                    department=department,
-                    edit_faculty_id=edit_faculty_id,
-                )
-            )
+        existing_departmental_id = Faculty.query.filter_by(email=departmental_id).first()
+        if existing_departmental_id and (not edit_faculty or existing_departmental_id.id != edit_faculty.id):
+            flash("That Departmental ID is already in use.", "error")
+            return redirect(url_for("main.admin_faculty", edit_faculty_id=edit_faculty_id))
 
         faculty = edit_faculty or Faculty()
         faculty.name = name
-        faculty.email = email
+        faculty.email = departmental_id
         faculty.department = department
         faculty.max_weekly_load = max_weekly_load
         faculty.is_active = is_active
@@ -587,7 +827,7 @@ def admin_faculty():
             db.session.rollback()
             flash("Faculty configuration could not be saved.", "error")
 
-        return redirect(url_for("main.admin_faculty", department=department))
+        return redirect(url_for("main.admin_faculty"))
 
     faculty_members = []
     if selected_department:
@@ -599,13 +839,31 @@ def admin_faculty():
 
     return render_template(
         "faculty_config.html",
-        available_departments=available_departments(),
         selected_department=selected_department,
-        subjects=department_subjects(selected_department),
+        subjects=department_capability_subjects(selected_department),
         faculty_members=faculty_members,
         edit_faculty=edit_faculty,
         max_weekly_teaching_slots=MAX_WEEKLY_TEACHING_SLOTS,
     )
+
+
+@main.route("/admin/faculty/<int:faculty_id>/delete", methods=["POST"])
+def delete_faculty(faculty_id):
+    user = current_user()
+    if not user or user.role != "admin":
+        flash("Admin login required.", "error")
+        return redirect(url_for("main.login"))
+
+    faculty = db.get_or_404(Faculty, faculty_id)
+    try:
+        db.session.delete(faculty)
+        db.session.commit()
+        flash("Faculty account removed.", "success")
+    except IntegrityError:
+        db.session.rollback()
+        flash("Cannot delete this faculty. They are assigned to saved timetables. Delete those timetables first.", "error")
+        
+    return redirect(url_for("main.admin_faculty"))
 
 
 @main.route("/faculty", methods=["GET"])
@@ -652,6 +910,33 @@ def faculty_dashboard():
     )
 
 
+from flask import jsonify
+
+@main.route("/api/check_duplicate", methods=["POST"])
+def check_duplicate():
+    user = current_user()
+    if not user or user.role != "admin":
+        return jsonify({"exists": False})
+
+    department = admin_department_context(user)
+    data = request.get_json()
+    semester = data.get("semester")
+    sections = data.get("sections", [])
+
+    if not semester or not sections:
+        return jsonify({"exists": False})
+
+    existing = (
+        TimetableBatch.query.filter_by(semester=semester)
+        .join(TimetableEntry)
+        .join(Subject)
+        .filter(Subject.department == department, TimetableEntry.section.in_(sections))
+        .first()
+    )
+
+    return jsonify({"exists": existing is not None})
+
+
 @main.route("/generate", methods=["POST"])
 def generate():
     user = current_user()
@@ -659,11 +944,11 @@ def generate():
         flash("Admin login required.", "error")
         return redirect(url_for("main.login"))
 
-    department = normalized_department(request.form.get("department", ""))
+    department = admin_department_context(user)
     semester = request.form.get("semester", type=int)
 
     if not department or semester not in SEMESTER_OPTIONS:
-        flash("Select a department and semester before generating the timetable.", "error")
+        flash("Select a semester before generating the timetable.", "error")
         return redirect(url_for("main.admin_dashboard"))
 
     active_subjects = (
@@ -704,8 +989,30 @@ def generate():
         )
         return redirect(url_for("main.admin_faculty", department=department))
 
-    registrations = faculty_generation_candidates(selected_subjects)
-    if not registrations:
+    sections = request.form.getlist("sections[]")
+    if not sections:
+        sections = ["A", "B"]
+        
+    force_replace = request.form.get("force_replace", "false") == "true"
+    if force_replace:
+        existing_batches = (
+            TimetableBatch.query.filter_by(semester=semester)
+            .join(TimetableEntry)
+            .join(Subject)
+            .filter(Subject.department == department, TimetableEntry.section.in_(sections))
+            .all()
+        )
+        for eb in existing_batches:
+            db.session.delete(eb)
+        db.session.commit()
+    
+    all_registrations_by_section = []
+    for section in sections:
+        sec_regs = faculty_generation_candidates(selected_subjects, section=section.strip())
+        if sec_regs:
+            all_registrations_by_section.append(sec_regs)
+
+    if not all_registrations_by_section:
         flash("No active faculty capability mappings exist for the selected subjects.", "error")
         return redirect(
             url_for("main.admin_dashboard", department=department, semester=semester)
@@ -715,15 +1022,19 @@ def generate():
         request.form.get("batch_name", "").strip()
         or f"{department} Semester {semester} Timetable"
     )
-    batch, _, unassigned = create_timetable_batch(registrations, semester)
+    batch, _, unassigned = create_timetable_batch(all_registrations_by_section, semester)
     batch.name = batch_name
     db.session.commit()
 
     if unassigned:
-        flash(
-            f'Timetable "{batch.name}" created with {len(unassigned)} unassigned demand item(s).',
-            "warning",
-        )
+        # Group unassigned items by type and subject to form specific notifications
+        for u in unassigned:
+            if u["type"] == "lab":
+                flash(f"The {u['subject']} lab needs {u['remaining_slots']} more period(s). Can we reduce any theory lecture to properly fit this lab into the 35-slot week?", "warning")
+            else:
+                flash(f"The {u['subject']} theory lectures could not fully fit perfectly into the week. Remaining needed: {u['remaining_slots']}.", "warning")
+        
+        flash(f'Timetable "{batch.name}" created, but certain elements had to be dynamically re-optimized or left empty to resolve space conflicts.', "warning")
     else:
         flash(f'Timetable "{batch.name}" created successfully.', "success")
 
@@ -768,9 +1079,9 @@ def admin_timetable():
             .all()
         )
     sections = sorted({entry.section for entry in entries})
-    timetable_map = defaultdict(dict)
+    timetable_map = defaultdict(lambda: defaultdict(list))
     for entry in entries:
-        timetable_map[(entry.section, entry.day)][entry.time_slot] = entry
+        timetable_map[(entry.section, entry.day)][entry.time_slot].append(entry)
 
     return render_template(
         "admin_timetable.html",

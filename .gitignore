@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+env/
+venv/
+ENV/
+instance/
+*.db
+*.log
+*.json
+*.txt
+debug_generation.py
+analyze_timetable.py
+patch_services.py
