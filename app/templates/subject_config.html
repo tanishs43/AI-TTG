@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="grid two-col">
+    <article class="card">
+        <h2>Subject Context</h2>
+        <p class="muted">Choose the academic context first. Subjects are always configured for one department and one semester.</p>
+        <form method="get" class="form">
+            <label>Department
+                <select name="department" required>
+                    <option value="">Select department</option>
+                    {% if selected_department and selected_department not in available_departments %}
+                        <option value="{{ selected_department }}" selected>{{ selected_department }}</option>
+                    {% endif %}
+                    {% for department in available_departments %}
+                        <option value="{{ department }}" {% if selected_department == department %}selected{% endif %}>{{ department }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Semester
+                <select name="semester" required>
+                    <option value="">Select semester</option>
+                    {% for semester in semester_options %}
+                        <option value="{{ semester }}" {% if selected_semester == semester %}selected{% endif %}>Semester {{ semester }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit">Load Subjects</button>
+        </form>
+        {% if selected_department and selected_semester %}
+            <p class="muted">Current active configured demand: {{ configured_demand }} slots.</p>
+        {% endif %}
+    </article>
+
+    <article class="card">
+        <h2>{% if edit_subject %}Edit Subject{% else %}Create Subject{% endif %}</h2>
+        {% if not selected_department or not selected_semester %}
+            <p>Select a department and semester before creating or viewing subjects.</p>
+        {% else %}
+            {% set is_standalone_lab = edit_subject and edit_subject.is_lab and edit_subject.theory_lectures_per_week == 0 %}
+            {% set is_free_lecture = edit_subject and edit_subject.is_free_lecture %}
+            <form method="post" class="form">
+                <input type="hidden" name="department" value="{{ selected_department }}">
+                <input type="hidden" name="semester" value="{{ selected_semester }}">
+                {% if edit_subject %}
+                    <input type="hidden" name="edit_subject_id" value="{{ edit_subject.id }}">
+                {% endif %}
+                <label>Subject Code
+                    <input
+                        type="text"
+                        name="code"
+                        id="subject-code"
+                        value="{{ 'NA' if is_free_lecture else (edit_subject.code if edit_subject else '') }}"
+                        placeholder="{{ 'NA' if is_free_lecture else 'BT101' }}"
+                        required
+                    >
+                </label>
+                <label>Subject Name
+                    <input type="text" name="name" value="{{ edit_subject.name if edit_subject else '' }}" required>
+                </label>
+                <label>Short Name (Optional)
+                    <input type="text" name="short_name" value="{{ edit_subject.short_name if edit_subject and edit_subject.short_name else '' }}" placeholder="e.g. COA">
+                </label>
+                <label class="check-row">
+                    <input type="checkbox" name="is_free_lecture" id="is-free-lecture" {% if is_free_lecture %}checked{% endif %}>
+                    <span>Add as free lecture subject (Library, Sports, etc.)</span>
+                </label>
+                <label class="check-row">
+                    <input type="checkbox" name="standalone_lab" id="standalone-lab" {% if is_standalone_lab %}checked{% endif %}>
+                    <span>This is a standalone lab only</span>
+                </label>
+                <label>Theory Lectures Per Week
+                    <input type="number" name="theory_lectures_per_week" min="0" value="{{ edit_subject.theory_lectures_per_week if edit_subject else 3 }}" required>
+                </label>
+                <label class="check-row">
+                    <input type="checkbox" name="has_lab" id="has-lab" {% if edit_subject and edit_subject.has_lab %}checked{% endif %}>
+                    <span>Includes laboratory component</span>
+                </label>
+                <label id="lab-session-field">Lab Sessions Per Week
+                    <input type="number" name="lab_sessions_per_week" min="0" value="{{ edit_subject.lab_sessions_per_week if edit_subject and edit_subject.has_lab else 0 }}">
+                </label>
+                <p class="muted">Use a code like BT101 for regular subjects. Use NA for free lectures such as Library or Sports. Choose standalone lab for lab-only entries with no theory subject.</p>
+                <label>Priority Level
+                    <select name="priority" id="subject-priority">
+                        <option value="1" {% if edit_subject and edit_subject.priority == 1 %}selected{% endif %}>1 — Highest Priority</option>
+                        <option value="2" {% if edit_subject and edit_subject.priority == 2 %}selected{% endif %}>2 — High Priority</option>
+                        <option value="3" {% if not edit_subject or edit_subject.priority == 3 %}selected{% endif %}>3 — Normal Priority</option>
+                        <option value="4" {% if edit_subject and edit_subject.priority == 4 %}selected{% endif %}>4 — Low Priority</option>
+                        <option value="5" {% if edit_subject and edit_subject.priority == 5 %}selected{% endif %}>5 — Lowest Priority</option>
+                    </select>
+                </label>
+                <p class="muted">Higher priority subjects are protected. If slots are full, low-priority subjects' lab slots may be reduced to fit new high-priority subjects.</p>
+                <button type="submit">{% if edit_subject %}Update Subject Configuration{% else %}Save Subject Configuration{% endif %}</button>
+                {% if edit_subject %}
+                    <button type="submit" class="danger" formaction="{{ url_for('main.delete_subject', subject_id=edit_subject.id) }}" formmethod="post">Remove Subject</button>
+                    <a class="text-link" href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester) }}">Cancel Edit</a>
+                {% endif %}
+            </form>
+        {% endif %}
+    </article>
+</section>
+
+<section class="card">
+    <div class="section-head">
+        <div>
+            <h2>Configured Subjects</h2>
+            {% if selected_department and selected_semester %}
+                <p class="muted">{{ selected_department }} | Semester {{ selected_semester }}</p>
+            {% endif %}
+        </div>
+    </div>
+    {% if not selected_department or not selected_semester %}
+        <p>No subject list is shown until a department and semester are selected.</p>
+    {% elif not subjects %}
+        <p>No subjects are configured yet for this academic context.</p>
+    {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Short Name</th>
+                    <th>Theory / Week</th>
+                    <th>Lab / Week</th>
+                    <th>Priority</th>
+                    <th>Edit</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for subject in subjects %}
+                    <tr>
+                        <td>{{ "NA" if subject.is_free_lecture else subject.code }}</td>
+                        <td>{{ subject.name }}</td>
+                        <td>{{ subject.short_name if subject.short_name else '-' }}</td>
+                        <td>{{ subject.theory_lectures_per_week }}{% if subject.is_free_lecture %} (Free){% endif %}</td>
+                        <td>{{ subject.lab_sessions_per_week if subject.has_lab else 0 }}{% if subject.is_lab %} (Lab Only){% endif %}</td>
+                        <td>
+                            {% if subject.priority == 1 %}<span class="badge badge-high">P1 — Highest</span>
+                            {% elif subject.priority == 2 %}<span class="badge badge-high">P2 — High</span>
+                            {% elif subject.priority == 4 %}<span class="badge badge-low">P4 — Low</span>
+                            {% elif subject.priority == 5 %}<span class="badge badge-low">P5 — Lowest</span>
+                            {% else %}<span class="badge">P3 — Normal</span>{% endif %}
+                        </td>
+                        <td class="icon-cell">
+                            <a
+                                class="icon-button"
+                                href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester, edit_subject_id=subject.id) }}"
+                                title="Edit subject"
+                                aria-label="Edit subject {{ subject.name }}"
+                            >&#9998;</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</section>
+
+<script>
+    const hasLab = document.getElementById("has-lab");
+    const freeLecture = document.getElementById("is-free-lecture");
+    const standaloneLab = document.getElementById("standalone-lab");
+    const labSessionField = document.getElementById("lab-session-field");
+    const codeField = document.getElementById("subject-code");
+    const theoryField = document.querySelector('input[name="theory_lectures_per_week"]');
+
+    function syncLabField() {
+        if (!hasLab || !labSessionField || !theoryField) {
+            return;
+        }
+        const input = labSessionField.querySelector("input");
+        const isFreeLecture = freeLecture && freeLecture.checked;
+        const isStandaloneLab = standaloneLab && standaloneLab.checked;
+        if (isFreeLecture) {
+            if (standaloneLab) {
+                standaloneLab.checked = false;
+                standaloneLab.disabled = true;
+            }
+            if (codeField) {
+                codeField.placeholder = "NA";
+                if (!codeField.value.trim()) {
+                    codeField.value = "NA";
+                }
+            }
+            hasLab.checked = false;
+            hasLab.disabled = true;
+            theoryField.readOnly = false;
+        } else if (isStandaloneLab) {
+            if (freeLecture) {
+                freeLecture.disabled = true;
+            }
+            if (codeField) {
+                codeField.placeholder = "BT101";
+                if (codeField.value.trim() === "NA") {
+                    codeField.value = "";
+                }
+            }
+            hasLab.checked = true;
+            hasLab.disabled = true;
+            theoryField.value = "0";
+            theoryField.readOnly = true;
+        } else {
+            if (freeLecture) {
+                freeLecture.disabled = false;
+            }
+            if (standaloneLab) {
+                standaloneLab.disabled = false;
+            }
+            if (codeField) {
+                codeField.placeholder = "BT101";
+                if (codeField.value.trim() === "NA") {
+                    codeField.value = "";
+                }
+            }
+            hasLab.disabled = false;
+            theoryField.readOnly = false;
+        }
+        labSessionField.style.display = isFreeLecture ? "none" : (hasLab.checked || isStandaloneLab ? "grid" : "none");
+        if ((isFreeLecture || !(hasLab.checked || isStandaloneLab)) && input) {
+            input.value = "0";
+        }
+    }
+
+    if (hasLab && labSessionField) {
+        hasLab.addEventListener("change", syncLabField);
+        if (freeLecture) {
+            freeLecture.addEventListener("change", syncLabField);
+        }
+        if (standaloneLab) {
+            standaloneLab.addEventListener("change", syncLabField);
+        }
+        syncLabField();
+    }
+</script>
+{% endblock %}

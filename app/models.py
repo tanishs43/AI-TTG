@@ -10,6 +10,7 @@ class User(db.Model):
     email = db.Column(db.String(120), nullable=False, unique=True)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False)
+    department = db.Column(db.String(120), nullable=False, default="General")
     faculty_profile = db.relationship("Faculty", back_populates="user", uselist=False)
 
 
@@ -17,8 +18,16 @@ class Faculty(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False,)
     email = db.Column(db.String(120), nullable=True, unique=True)
+    department = db.Column(db.String(120), nullable=False, default="General")
+    max_weekly_load = db.Column(db.Integer, nullable=False, default=21)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, unique=True)
     user = db.relationship("User", back_populates="faculty_profile")
+    capabilities = db.relationship(
+        "FacultyCapability",
+        back_populates="faculty",
+        cascade="all, delete-orphan",
+    )
     registrations = db.relationship(
         "FacultySubjectRegistration",
         back_populates="faculty",
@@ -30,12 +39,40 @@ class Subject(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(30), nullable=False, unique=True)
     name = db.Column(db.String(120), nullable=False)
+    short_name = db.Column(db.String(50), nullable=True)
+    department = db.Column(db.String(120), nullable=False, default="General")
     semester = db.Column(db.Integer, nullable=False, default=1)
     weekly_slots = db.Column(db.Integer, nullable=False, default=3)
+    is_lab = db.Column(db.Boolean, nullable=False, default=False)
+    is_subject_linked_lab = db.Column(db.Boolean, nullable=False, default=False)
+    is_free_lecture = db.Column(db.Boolean, nullable=False, default=False)
+    theory_lectures_per_week = db.Column(db.Integer, nullable=False, default=3)
+    has_lab = db.Column(db.Boolean, nullable=False, default=False)
+    lab_sessions_per_week = db.Column(db.Integer, nullable=False, default=0)
+    priority = db.Column(db.Integer, nullable=False, default=3)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
     registrations = db.relationship(
         "FacultySubjectRegistration",
         back_populates="subject",
         cascade="all, delete-orphan",
+    )
+    capabilities = db.relationship(
+        "FacultyCapability",
+        back_populates="subject",
+        cascade="all, delete-orphan",
+    )
+
+
+class FacultyCapability(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    faculty_id = db.Column(db.Integer, db.ForeignKey("faculty.id"), nullable=False)
+    subject_id = db.Column(db.Integer, db.ForeignKey("subject.id"), nullable=False)
+
+    faculty = db.relationship("Faculty", back_populates="capabilities")
+    subject = db.relationship("Subject", back_populates="capabilities")
+
+    __table_args__ = (
+        db.UniqueConstraint("faculty_id", "subject_id", name="uq_faculty_capability"),
     )
 
 
@@ -77,15 +114,11 @@ class TimetableEntry(db.Model):
     day = db.Column(db.String(20), nullable=False)
     time_slot = db.Column(db.String(30), nullable=False)
     section = db.Column(db.String(30), nullable=False)
-    faculty_id = db.Column(db.Integer, db.ForeignKey("faculty.id"), nullable=False)
+    lab_batch = db.Column(db.String(30), nullable=True)
+    room = db.Column(db.String(50), nullable=True)
+    faculty_id = db.Column(db.Integer, db.ForeignKey("faculty.id"), nullable=True)
     subject_id = db.Column(db.Integer, db.ForeignKey("subject.id"), nullable=False)
 
     batch = db.relationship("TimetableBatch", back_populates="entries")
     faculty = db.relationship("Faculty")
     subject = db.relationship("Subject")
-
-    __table_args__ = (
-        db.UniqueConstraint(
-            "batch_id", "day", "time_slot", "section", name="uq_batch_section_day_time"
-        ),
-    )

@@ -8,11 +8,11 @@
     </article>
     <article class="card">
         <h2>{{ subject_count }}</h2>
-        <p>Subjects</p>
+        <p>Configured subjects</p>
     </article>
     <article class="card">
         <h2>{{ registration_count }}</h2>
-        <p>Faculty subject registrations</p>
+        <p>Active faculty capability mappings</p>
     </article>
     <article class="card">
         <h2>{{ timetable_count }}</h2>
@@ -22,34 +22,166 @@
 
 <section class="grid two-col">
     <article class="card">
-        <h2>Timetable Controls</h2>
-        <p class="muted">Choose a semester, then select the subjects from that semester for timetable generation.</p>
-        <form method="post" action="{{ url_for('main.generate') }}">
-            <label>Timetable Name
-                <input type="text" name="batch_name" placeholder="Semester timetable name">
-            </label>
+        <h2>Generation Context</h2>
+        <p class="muted">Select the department and semester first. Timetable generation is blocked until active subjects are configured in the subject module for that academic context.</p>
+        <form method="get" class="form">
+            <input type="hidden" name="department" value="{{ selected_department }}">
             <label>Semester
-                <select name="semester" id="semester-filter" required>
+                <select name="semester" required>
                     <option value="">Select semester</option>
-                    {% for semester in semesters %}
-                        <option value="{{ semester }}">Semester {{ semester }}</option>
+                    {% for semester in semester_options %}
+                        <option value="{{ semester }}" {% if selected_semester == semester %}selected{% endif %}>Semester {{ semester }}</option>
                     {% endfor %}
                 </select>
             </label>
-            <div class="subject-picker">
-                {% for subject in subjects %}
-                    <label class="check-row" data-semester="{{ subject.semester }}">
-                        <input type="checkbox" name="subject_ids" value="{{ subject.id }}">
-                        <span>Sem {{ subject.semester }} - {{ subject.code }} - {{ subject.name }} ({{ subject.weekly_slots }}/week)</span>
-                    </label>
-                {% else %}
-                    <p class="muted">No subjects available.</p>
-                {% endfor %}
-            </div>
-            <button type="submit" class="secondary">Generate Timetable</button>
+            <button type="submit">Load Active Subjects</button>
         </form>
+        <p class="muted">Weekly teaching capacity: {{ max_weekly_teaching_slots }} slots.</p>
+        <p><a href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester) }}">Open Subject Configuration</a></p>
+        <p><a href="{{ url_for('main.admin_faculty') }}">Open Faculty Configuration</a></p>
     </article>
 
+    <article class="card">
+        <h2>Generate Timetable</h2>
+        {% if not selected_department or not selected_semester %}
+            <p>Select a department and semester to load active subjects.</p>
+        {% elif not subjects %}
+            <p>No active subjects are configured for {{ selected_department }} Semester {{ selected_semester }}.</p>
+            <p><a href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester) }}">Configure subjects first</a></p>
+        {% else %}
+            <form id="generate-form" method="post" action="{{ url_for('main.generate') }}" onsubmit="return handleGenerateSubmit(event)">
+                <input type="hidden" name="force_replace" id="force_replace" value="false">
+                <input type="hidden" name="department" value="{{ selected_department }}">
+                <input type="hidden" name="semester" value="{{ selected_semester }}">
+                <label>Timetable Name
+                    <input type="text" name="batch_name" placeholder="{{ selected_department }} Semester {{ selected_semester }} Timetable">
+                </label>
+                <label style="margin-bottom: 5px;">Select Sections</label>
+                <style>
+                    .section-strip {
+                        display: flex;
+                        background: var(--bg-color);
+                        border-radius: 6px;
+                        overflow: hidden;
+                        border: 1px solid #ccc;
+                        margin-bottom: 15px;
+                    }
+                    .section-strip label {
+                        flex: 1;
+                        text-align: center;
+                        margin: 0 !important;
+                        border-right: 1px solid #ccc;
+                        cursor: pointer;
+                        padding: 0;
+                    }
+                    .section-strip label:last-child {
+                        border-right: none;
+                    }
+                    .section-strip input[type="checkbox"] {
+                        display: none;
+                    }
+                    .section-strip span {
+                        display: block;
+                        padding: 10px;
+                        font-weight: 600;
+                        color: var(--text-muted);
+                        transition: all 0.2s ease;
+                    }
+                    .section-strip input[type="checkbox"]:checked + span {
+                        background: var(--primary-color);
+                        color: white;
+                    }
+                </style>
+                <div class="section-strip">
+                    <label><input type="checkbox" name="sections[]" value="A" checked> <span>Section A</span></label>
+                    <label><input type="checkbox" name="sections[]" value="B" checked> <span>Section B</span></label>
+                    <label><input type="checkbox" name="sections[]" value="C"> <span>Section C</span></label>
+                    <label><input type="checkbox" name="sections[]" value="D"> <span>Section D</span></label>
+                    <label><input type="checkbox" name="sections[]" value="E"> <span>Section E</span></label>
+                </div>
+                <div class="subject-picker">
+                    {% for subject in subjects %}
+                        <label class="check-row">
+                            <input type="checkbox" name="subject_ids" value="{{ subject.id }}">
+                            <span>
+                                {{ subject.name }} | Theory {{ subject.theory_lectures_per_week }}/week
+                                {% if subject.has_lab %}
+                                    | Lab {{ subject.lab_sessions_per_week }}/week
+                                {% endif %}
+                                {% if subject.is_free_lecture %}
+                                    | Free Lecture
+                                {% endif %}
+                                {% if subject.priority and subject.priority <= 2 %}
+                                    | High Priority
+                                {% endif %}
+                            </span>
+                        </label>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="secondary">Generate Timetable</button>
+            </form>
+        {% endif %}
+    </article>
+
+    <!-- Duplicate Notification Popup -->
+    <div id="duplicate-popup" class="card" style="display:none; position:fixed; bottom:24px; right:24px; width:360px; z-index:1000; box-shadow: var(--shadow-lg); border-left: 4px solid var(--warning); padding: 20px;">
+        <h3 style="margin: 0 0 8px 0; font-size:1.1rem; color: var(--text-primary);">Duplicate Detected</h3>
+        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:16px;">Timetable for one or more selected sections already exists.</p>
+        <div style="display:flex; gap:12px;">
+            <button type="button" class="danger" onclick="confirmReplace()" style="flex:1;">Replace</button>
+            <button type="button" class="secondary" onclick="cancelReplace()" style="flex:1; background:var(--bg-color); color:var(--text-primary); border: 1px solid var(--border-color);">Keep Existing</button>
+        </div>
+    </div>
+
+    <script>
+    async function handleGenerateSubmit(event) {
+        const forceReplaceInput = document.getElementById('force_replace');
+        if (forceReplaceInput.value === 'true') {
+            return true; // Let form submit
+        }
+        
+        event.preventDefault();
+        const form = event.target;
+        const formData = new FormData(form);
+        const sections = formData.getAll('sections[]');
+        const semester = formData.get('semester');
+        
+        if (!semester || sections.length === 0) {
+            form.submit();
+            return false;
+        }
+
+        try {
+            const response = await fetch("{{ url_for('main.check_duplicate') }}", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ semester: parseInt(semester), sections: sections })
+            });
+            const data = await response.json();
+            if (data.exists) {
+                document.getElementById('duplicate-popup').style.display = 'block';
+            } else {
+                form.submit();
+            }
+        } catch (e) {
+            form.submit();
+        }
+        return false;
+    }
+
+    function confirmReplace() {
+        document.getElementById('force_replace').value = 'true';
+        document.getElementById('duplicate-popup').style.display = 'none';
+        document.getElementById('generate-form').submit();
+    }
+
+    function cancelReplace() {
+        document.getElementById('duplicate-popup').style.display = 'none';
+    }
+    </script>
+</section>
+
+<section class="grid two-col">
     <article class="card">
         <h2>Saved Timetables</h2>
         <div class="saved-list">
@@ -60,7 +192,7 @@
                         <span class="muted">Semester {{ batch.semester }}</span>
                     </div>
                     <div class="row-actions">
-                        <a href="{{ url_for('main.admin_dashboard', batch_id=batch.id) }}">View</a>
+                        <a href="{{ url_for('main.admin_dashboard', batch_id=batch.id, department=selected_department, semester=selected_semester) }}">View</a>
                         <a href="{{ url_for('main.admin_timetable', batch_id=batch.id) }}">Open</a>
                         <form method="post" action="{{ url_for('main.delete_timetable', batch_id=batch.id) }}">
                             <button type="submit" class="danger">Delete</button>
@@ -72,57 +204,29 @@
             {% endfor %}
         </div>
     </article>
-</section>
-
-<section class="grid two-col">
-    <article class="card">
-        <h2>Subjects</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Semester</th>
-                    <th>Classes Per Week</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for subject in subjects %}
-                    <tr>
-                        <td>{{ subject.code }}</td>
-                        <td>{{ subject.name }}</td>
-                        <td>{{ subject.semester }}</td>
-                        <td>{{ subject.weekly_slots }}</td>
-                    </tr>
-                {% else %}
-                    <tr>
-                        <td colspan="4">No subjects created yet.</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </article>
 
     <article class="card">
-        <h2>Faculty Subject Registrations</h2>
+        <h2>Faculty Capability Pool</h2>
         <table>
             <thead>
                 <tr>
                     <th>Faculty</th>
+                    <th>Department</th>
                     <th>Subject</th>
-                    <th>Section</th>
+                    <th>Max Load</th>
                 </tr>
             </thead>
             <tbody>
-                {% for item in registrations %}
+                {% for item in capabilities %}
                     <tr>
                         <td>{{ item.faculty.name }}</td>
-                        <td>Sem {{ item.subject.semester }} - {{ item.subject.code }} - {{ item.subject.name }}</td>
-                        <td>{{ item.preferred_section }}</td>
+                        <td>{{ item.faculty.department }}</td>
+                        <td>{{ item.subject.department }} | Sem {{ item.subject.semester }} | {{ item.subject.code }} | {{ item.subject.name }}</td>
+                        <td>{{ item.faculty.max_weekly_load }}</td>
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="3">No faculty registrations yet.</td>
+                        <td colspan="4">No active faculty capability mappings yet.</td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -136,6 +240,9 @@
         <thead>
             <tr>
                 <th>Name</th>
+                <th>Department</th>
+                <th>Max Load</th>
+                <th>Status</th>
                 <th>Email</th>
             </tr>
         </thead>
@@ -143,36 +250,17 @@
             {% for faculty in faculties %}
                 <tr>
                     <td>{{ faculty.name }}</td>
+                    <td>{{ faculty.department }}</td>
+                    <td>{{ faculty.max_weekly_load }}</td>
+                    <td>{{ "Active" if faculty.is_active else "Inactive" }}</td>
                     <td>{{ faculty.email }}</td>
                 </tr>
             {% else %}
                 <tr>
-                    <td colspan="2">No faculty accounts yet.</td>
+                    <td colspan="5">No faculty accounts yet.</td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
 </section>
-
-<script>
-    const semesterFilter = document.getElementById("semester-filter");
-    const subjectRows = document.querySelectorAll("[data-semester]");
-
-    function syncSubjectVisibility() {
-        const selectedSemester = semesterFilter ? semesterFilter.value : "";
-        subjectRows.forEach((row) => {
-            const matches = !selectedSemester || row.dataset.semester === selectedSemester;
-            row.style.display = matches ? "flex" : "none";
-            const checkbox = row.querySelector('input[type="checkbox"]');
-            if (!matches && checkbox) {
-                checkbox.checked = false;
-            }
-        });
-    }
-
-    if (semesterFilter) {
-        semesterFilter.addEventListener("change", syncSubjectVisibility);
-        syncSubjectVisibility();
-    }
-</script>
 {% endblock %}

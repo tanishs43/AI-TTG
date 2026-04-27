@@ -3,42 +3,90 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Time Table Generator</title>
+    <title>AI Timetable Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
 </head>
 <body>
-    <header class="header">
-        <div>
-            <h1>Time Table Generator</h1>
-            <p>Role-based timetable system for admin and faculty.</p>
-        </div>
-        <nav class="nav">
-            {% if session.get('role') == 'admin' %}
-                <a href="{{ url_for('main.admin_dashboard') }}">Admin Dashboard</a>
-                <a href="{{ url_for('main.admin_timetable') }}">Admin Timetable</a>
-                <a href="{{ url_for('main.logout') }}">Logout</a>
-            {% elif session.get('role') == 'faculty' %}
-                <a href="{{ url_for('main.faculty_dashboard') }}">Faculty Dashboard</a>
-                <a href="{{ url_for('main.logout') }}">Logout</a>
+    <div class="layout-wrapper">
+        {% if session.get('role') %}
+        <aside class="sidebar">
+            <div class="sidebar-logo">
+                <div class="logo-icon"><i class='bx bx-calendar-event'></i></div>
+                <h2>AI-TTG Engine</h2>
+            </div>
+            <div class="sidebar-section">
+                <span class="sidebar-label">MENU</span>
+                <nav class="sidebar-nav">
+                    {% if session.get('role') == 'admin' %}
+                        <a href="{{ url_for('main.admin_dashboard') }}" class="{{ 'active' if request.endpoint == 'main.admin_dashboard' else '' }}"><i class='bx bx-grid-alt'></i> Overview</a>
+                        <a href="{{ url_for('main.admin_subjects') }}" class="{{ 'active' if request.endpoint == 'main.admin_subjects' else '' }}"><i class='bx bx-book'></i> Subjects</a>
+                        <a href="{{ url_for('main.admin_faculty') }}" class="{{ 'active' if request.endpoint == 'main.admin_faculty' else '' }}"><i class='bx bx-user-circle'></i> Faculty</a>
+                        <a href="{{ url_for('main.admin_timetable') }}" class="{{ 'active' if request.endpoint == 'main.admin_timetable' else '' }}"><i class='bx bx-table'></i> Timetables</a>
+                    {% elif session.get('role') == 'faculty' %}
+                        <a href="{{ url_for('main.faculty_dashboard') }}" class="{{ 'active' if request.endpoint == 'main.faculty_dashboard' else '' }}"><i class='bx bx-grid-alt'></i> My Dashboard</a>
+                    {% endif %}
+                </nav>
+            </div>
+            <div class="sidebar-spacer"></div>
+            <div class="sidebar-footer">
+                <a href="{{ url_for('main.logout') }}" class="logout-btn"><i class='bx bx-log-out'></i> Log out</a>
+            </div>
+        </aside>
+        {% endif %}
+
+        <div class="main-content {% if not session.get('role') %}no-sidebar{% endif %}">
+            {% if session.get('role') %}
+            <header class="top-header">
+                <div class="search-wrap">
+                    <i class='bx bx-search'></i>
+                    <input type="text" placeholder="Search application...">
+                </div>
+                <div class="top-actions">
+                    <button class="icon-btn"><i class='bx bx-bell'></i></button>
+                    <div class="user-profile">
+                        <div class="avatar">{{ session.get('role')[0]|upper }}</div>
+                        <div class="user-info">
+                            <span class="name">{{ session.get('role')|title }} User</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
             {% else %}
-                <a href="{{ url_for('main.login') }}">Login</a>
-                <a href="{{ url_for('main.signup') }}">Faculty Signup</a>
+            <header class="top-header public-header">
+                <div class="sidebar-logo">
+                    <div class="logo-icon"><i class='bx bx-calendar-event'></i></div>
+                    <h2>AI-TTG Engine</h2>
+                </div>
+                <nav class="public-nav">
+                    <a href="{{ url_for('main.login') }}">Login</a>
+                    <a href="{{ url_for('main.signup') }}" class="btn-primary">Sign Up</a>
+                </nav>
+            </header>
             {% endif %}
-        </nav>
-    </header>
 
-    <main class="container">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <section class="flash-list">
-                    {% for category, message in messages %}
-                        <div class="flash {{ category }}">{{ message }}</div>
-                    {% endfor %}
-                </section>
-            {% endif %}
-        {% endwith %}
+            <main class="page-content">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        <section class="flash-list">
+                            {% for category, message in messages %}
+                                <div class="flash {{ category }}">
+                                    <i class='bx {% if category == "success" %}bx-check-circle{% elif category == "error" %}bx-x-circle{% else %}bx-info-circle{% endif %}'></i>
+                                    <span>{{ message }}</span>
+                                </div>
+                            {% endfor %}
+                        </section>
+                    {% endif %}
+                {% endwith %}
 
-        {% block content %}{% endblock %}
-    </main>
+                <div class="content-wrapper">
+                    {% block content %}{% endblock %}
+                </div>
+            </main>
+        </div>
+    </div>
 </body>
 </html>
