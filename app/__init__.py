@@ -1,14 +1,24 @@
 from flask import Flask
 from sqlalchemy import inspect, text
 from werkzeug.security import generate_password_hash
+import os
 
 from .models import FacultyCapability, TimetableBatch, User, db
 
-
 def create_app():
     app = Flask(__name__)
-    app.config["SECRET_KEY"] = "dev-secret-key"
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///timetable.db"
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
+    
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        # Handle the case where Supabase/Heroku provides 'postgres://' 
+        # but SQLAlchemy requires 'postgresql://'
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+    else:
+        app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///timetable.db"
+        
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     db.init_app(app)
