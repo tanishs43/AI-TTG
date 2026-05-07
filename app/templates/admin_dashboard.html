@@ -1,24 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="grid stats">
-    <article class="card">
-        <h2>{{ faculty_count }}</h2>
-        <p>Faculty accounts</p>
-    </article>
-    <article class="card">
-        <h2>{{ subject_count }}</h2>
-        <p>Configured subjects</p>
-    </article>
-    <article class="card">
-        <h2>{{ registration_count }}</h2>
-        <p>Active faculty capability mappings</p>
-    </article>
-    <article class="card">
-        <h2>{{ timetable_count }}</h2>
-        <p>Generated timetable entries</p>
-    </article>
-</section>
 
 <section class="grid two-col">
     <article class="card">
@@ -110,9 +92,6 @@
                                 {% endif %}
                                 {% if subject.is_free_lecture %}
                                     | Free Lecture
-                                {% endif %}
-                                {% if subject.priority and subject.priority <= 2 %}
-                                    | High Priority
                                 {% endif %}
                             </span>
                         </label>

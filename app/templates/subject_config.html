@@ -12,8 +12,11 @@
                     {% if selected_department and selected_department not in available_departments %}
                         <option value="{{ selected_department }}" selected>{{ selected_department }}</option>
                     {% endif %}
+                    {% if not selected_department and 'CSIT' not in available_departments %}
+                        <option value="CSIT" selected>CSIT</option>
+                    {% endif %}
                     {% for department in available_departments %}
-                        <option value="{{ department }}" {% if selected_department == department %}selected{% endif %}>{{ department }}</option>
+                        <option value="{{ department }}" {% if selected_department == department %}selected{% elif not selected_department and department == 'CSIT' %}selected{% endif %}>{{ department }}</option>
                     {% endfor %}
                 </select>
             </label>
@@ -45,14 +48,13 @@
                 {% if edit_subject %}
                     <input type="hidden" name="edit_subject_id" value="{{ edit_subject.id }}">
                 {% endif %}
-                <label>Subject Code
+                <label id="subject-code-label" {% if is_free_lecture %}style="display: none;"{% endif %}>Subject Code
                     <input
                         type="text"
                         name="code"
                         id="subject-code"
-                        value="{{ 'NA' if is_free_lecture else (edit_subject.code if edit_subject else '') }}"
-                        placeholder="{{ 'NA' if is_free_lecture else 'BT101' }}"
-                        required
+                        value="{{ '' if (edit_subject and edit_subject.code.startswith('NA')) or is_free_lecture else (edit_subject.code if edit_subject else '') }}"
+                        placeholder="Leave blank for no subject code"
                     >
                 </label>
                 <label>Subject Name
@@ -79,17 +81,7 @@
                 <label id="lab-session-field">Lab Sessions Per Week
                     <input type="number" name="lab_sessions_per_week" min="0" value="{{ edit_subject.lab_sessions_per_week if edit_subject and edit_subject.has_lab else 0 }}">
                 </label>
-                <p class="muted">Use a code like BT101 for regular subjects. Use NA for free lectures such as Library or Sports. Choose standalone lab for lab-only entries with no theory subject.</p>
-                <label>Priority Level
-                    <select name="priority" id="subject-priority">
-                        <option value="1" {% if edit_subject and edit_subject.priority == 1 %}selected{% endif %}>1 — Highest Priority</option>
-                        <option value="2" {% if edit_subject and edit_subject.priority == 2 %}selected{% endif %}>2 — High Priority</option>
-                        <option value="3" {% if not edit_subject or edit_subject.priority == 3 %}selected{% endif %}>3 — Normal Priority</option>
-                        <option value="4" {% if edit_subject and edit_subject.priority == 4 %}selected{% endif %}>4 — Low Priority</option>
-                        <option value="5" {% if edit_subject and edit_subject.priority == 5 %}selected{% endif %}>5 — Lowest Priority</option>
-                    </select>
-                </label>
-                <p class="muted">Higher priority subjects are protected. If slots are full, low-priority subjects' lab slots may be reduced to fit new high-priority subjects.</p>
+                <p class="muted">Use a code like BT-101 for regular subjects. Use NA for free lectures such as Library or Sports. Choose standalone lab for lab-only entries with no theory subject.</p>
                 <button type="submit">{% if edit_subject %}Update Subject Configuration{% else %}Save Subject Configuration{% endif %}</button>
                 {% if edit_subject %}
                     <button type="submit" class="danger" formaction="{{ url_for('main.delete_subject', subject_id=edit_subject.id) }}" formmethod="post">Remove Subject</button>
@@ -122,25 +114,17 @@
                     <th>Short Name</th>
                     <th>Theory / Week</th>
                     <th>Lab / Week</th>
-                    <th>Priority</th>
                     <th>Edit</th>
                 </tr>
             </thead>
             <tbody>
                 {% for subject in subjects %}
                     <tr>
-                        <td>{{ "NA" if subject.is_free_lecture else subject.code }}</td>
+                        <td>{{ "" if subject.code.startswith("NA") else subject.code }}</td>
                         <td>{{ subject.name }}</td>
                         <td>{{ subject.short_name if subject.short_name else '-' }}</td>
                         <td>{{ subject.theory_lectures_per_week }}{% if subject.is_free_lecture %} (Free){% endif %}</td>
                         <td>{{ subject.lab_sessions_per_week if subject.has_lab else 0 }}{% if subject.is_lab %} (Lab Only){% endif %}</td>
-                        <td>
-                            {% if subject.priority == 1 %}<span class="badge badge-high">P1 — Highest</span>
-                            {% elif subject.priority == 2 %}<span class="badge badge-high">P2 — High</span>
-                            {% elif subject.priority == 4 %}<span class="badge badge-low">P4 — Low</span>
-                            {% elif subject.priority == 5 %}<span class="badge badge-low">P5 — Lowest</span>
-                            {% else %}<span class="badge">P3 — Normal</span>{% endif %}
-                        </td>
                         <td class="icon-cell">
                             <a
                                 class="icon-button"
@@ -162,6 +146,7 @@
     const standaloneLab = document.getElementById("standalone-lab");
     const labSessionField = document.getElementById("lab-session-field");
     const codeField = document.getElementById("subject-code");
+    const codeLabel = document.getElementById("subject-code-label");
     const theoryField = document.querySelector('input[name="theory_lectures_per_week"]');
 
     function syncLabField() {
@@ -176,10 +161,14 @@
                 standaloneLab.checked = false;
                 standaloneLab.disabled = true;
             }
+            if (codeLabel) {
+                codeLabel.style.display = "none";
+            }
             if (codeField) {
-                codeField.placeholder = "NA";
-                if (!codeField.value.trim()) {
-                    codeField.value = "NA";
+                codeField.required = false;
+                codeField.placeholder = "Leave blank for no subject code";
+                if (codeField.value.trim() === "NA") {
+                    codeField.value = "";
                 }
             }
             hasLab.checked = false;
@@ -189,8 +178,12 @@
             if (freeLecture) {
                 freeLecture.disabled = true;
             }
+            if (codeLabel) {
+                codeLabel.style.display = "";
+            }
             if (codeField) {
-                codeField.placeholder = "BT101";
+                codeField.required = false;
+                codeField.placeholder = "Leave blank for no subject code";
                 if (codeField.value.trim() === "NA") {
                     codeField.value = "";
                 }
@@ -206,8 +199,12 @@
             if (standaloneLab) {
                 standaloneLab.disabled = false;
             }
+            if (codeLabel) {
+                codeLabel.style.display = "";
+            }
             if (codeField) {
-                codeField.placeholder = "BT101";
+                codeField.required = false;
+                codeField.placeholder = "Leave blank for no subject code";
                 if (codeField.value.trim() === "NA") {
                     codeField.value = "";
                 }

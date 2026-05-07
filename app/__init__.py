@@ -10,16 +10,27 @@ def create_app():
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
     
     database_url = os.environ.get("DATABASE_URL")
-    if database_url:
+    if database_url and database_url.strip():
+        database_url = database_url.strip()
         # Handle the case where Supabase/Heroku provides 'postgres://' 
         # but SQLAlchemy requires 'postgresql://'
         if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
+            database_url = database_url.replace("postgres://", "postgresql+pg8000://", 1)
+        elif database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+pg8000://", 1)
         app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     else:
-        app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///timetable.db"
+        # For Vercel deployments, using SQLite is a fallback.
+        # We must use /tmp because the Vercel filesystem is read-only elsewhere.
+        app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:////tmp/timetable.db"
         
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    
+    # Configure connection pooling to handle PostgreSQL connection drops
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
 
     db.init_app(app)
 
@@ -28,9 +39,14 @@ def create_app():
     app.register_blueprint(main)
 
     with app.app_context():
-        db.create_all()
-        ensure_schema()
-        seed_admin()
+        try:
+            db.create_all()
+            ensure_schema()
+            seed_admin()
+        except Exception as e:
+            # On Vercel build environment, database access might fail
+            # We log the error but allow the app to initialize so Vercel can find the entrypoint
+            app.logger.warning(f"Database initialization skipped or failed: {e}")
 
     return app
 

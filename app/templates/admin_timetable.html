@@ -183,7 +183,7 @@
                                                 <div style="display:flex; flex-direction:column; gap:4px; justify-content:center; height:100%;">
                                                     {% for e in entries %}
                                                     <div>
-                                                        <strong class="print-black">{{ "NA" if e.subject.is_free_lecture else e.subject.code }} {{ e.subject.short_name or e.subject.name }} {{ e.lab_batch }} {{ e.room }}</strong>
+                                                        <strong class="print-black">{% if not e.subject.code.startswith('NA') %}{{ e.subject.code }} {% endif %}{{ e.subject.short_name or e.subject.name }} {{ e.lab_batch }} {{ e.room }}</strong>
                                                         <div style="margin-top: 1px;">{{ e.faculty.name if e.faculty else "Free Lecture" }}</div>
                                                     </div>
                                                     {% endfor %}
@@ -193,7 +193,7 @@
                                             <td class="class-cell">
                                                 {% if entries %}
                                                     {% set entry = entries[0] %}
-                                                    <strong class="print-black">{{ "NA" if entry.subject.is_free_lecture else entry.subject.code }} {{ entry.subject.short_name or entry.subject.name }}</strong>
+                                                    <strong class="print-black">{% if not entry.subject.code.startswith('NA') %}{{ entry.subject.code }} {% endif %}{{ entry.subject.short_name or entry.subject.name }}</strong>
                                                     <div style="margin-top: 1px;">{{ entry.faculty.name if entry.faculty else "Free Lecture" }}</div>
                                                 {% else %}
                                                     -

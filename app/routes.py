@@ -41,7 +41,7 @@ def admin_department_context(user=None):
 
     department = normalized_department(session.get("department") or user.department)
     if not department:
-        department = "General"
+        department = "CSIT"
     if user.department != department:
         user.department = department
         db.session.commit()
@@ -90,11 +90,18 @@ def normalized_title_case(value):
 
 
 def normalized_subject_code(value):
-    return " ".join((value or "").split()).strip().upper()
+    raw = "".join((value or "").split()).strip().upper()
+    # Remove any existing hyphens so we can re-format cleanly
+    raw = raw.replace("-", "")
+    # Split into letter prefix and number suffix, insert hyphen
+    match = re.fullmatch(r"([A-Z]+)(\d+)", raw)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}"
+    return raw
 
 
 def is_valid_subject_code(value):
-    return bool(re.fullmatch(r"[A-Z0-9]+", value or ""))
+    return bool(re.fullmatch(r"[A-Z]+-[0-9]+", value or "") or re.fullmatch(r"[A-Z0-9]+", value or ""))
 
 
 def next_free_lecture_code(subject_id=None):
@@ -315,7 +322,7 @@ def signup():
             email=email,
             password_hash=generate_password_hash(password),
             role="faculty",
-            department="General",
+            department="CSIT",
         )
         faculty = Faculty(name=name, email=email, user=user)
         db.session.add_all([user, faculty])
@@ -345,7 +352,7 @@ def login():
 
         session["user_id"] = user.id
         session["role"] = user.role
-        session["department"] = normalized_department(user.department) or "General"
+        session["department"] = normalized_department(user.department) or "CSIT"
 
         if user.role == "admin":
             return redirect(url_for("main.admin_dashboard"))
@@ -454,11 +461,9 @@ def admin_subjects():
             has_lab = False
             standalone_lab = False
             lab_sessions = 0
-            code = (
-                next_free_lecture_code(edit_subject.id if edit_subject else None)
-                if raw_code in {"", "NA"}
-                else raw_code
-            )
+
+        if not raw_code or raw_code == "NA":
+            code = next_free_lecture_code(edit_subject.id if edit_subject else None)
         else:
             code = raw_code
 
@@ -466,8 +471,8 @@ def admin_subjects():
         lab_sessions = max(lab_sessions or 0, 0)
         total_demand = subject_total_demand(theory_lectures, has_lab, lab_sessions)
 
-        if not code or not name:
-            flash("Subject code and subject name are required.", "error")
+        if not name:
+            flash("Subject name is required.", "error")
             return redirect(
                 url_for(
                     "main.admin_subjects",
@@ -574,7 +579,7 @@ def admin_subjects():
         subject.is_lab = has_lab and theory_lectures == 0
         subject.is_subject_linked_lab = has_lab and theory_lectures > 0
         subject.is_free_lecture = is_free_lecture
-        subject.priority = request.form.get("priority", type=int) or 3
+        subject.priority = 3
         subject.is_active = True
         db.session.add(subject)
         try:
@@ -992,6 +997,10 @@ def generate():
     sections = request.form.getlist("sections[]")
     if not sections:
         sections = ["A", "B"]
+    
+    print(f"\n{'='*60}")
+    print(f"GENERATE: sections={sections}, semester={semester}, dept={department}")
+    print(f"{'='*60}")
         
     force_replace = request.form.get("force_replace", "false") == "true"
     if force_replace:
@@ -1011,6 +1020,13 @@ def generate():
         sec_regs = faculty_generation_candidates(selected_subjects, section=section.strip())
         if sec_regs:
             all_registrations_by_section.append(sec_regs)
+    
+    print(f"GENERATE: {len(all_registrations_by_section)} section(s) with registrations")
+    for i, regs in enumerate(all_registrations_by_section):
+        sec = regs[0].preferred_section if regs else '?'
+        print(f"  Section {sec}: {len(regs)} candidates")
+        for r in regs:
+            print(f"    - Faculty={getattr(r.faculty, 'name', 'None')} Subject={r.subject.name}")
 
     if not all_registrations_by_section:
         flash("No active faculty capability mappings exist for the selected subjects.", "error")

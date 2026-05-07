@@ -48,7 +48,7 @@
                                         <label
                                             class="subject-capability-item"
                                             data-subject-item
-                                            data-subject-code="{{ subject.code | lower }}"
+                                            data-subject-code="{% if subject.code.startswith('NA') %}s{{ subject.semester }}{% else %}{{ subject.code | lower }}{% endif %}"
                                             data-subject-name="{{ subject.name | lower }}"
                                         >
                                             <input
@@ -58,7 +58,7 @@
                                                 {% if subject.id in selected_subject_ids %}checked{% endif %}
                                             >
                                             <span>
-                                                <strong>{{ subject.code }}</strong>
+                                                <strong>{% if subject.code.startswith('NA') %}S{{ subject.semester }}{% else %}{{ subject.code }}{% endif %}</strong>
                                                 <small>{{ subject.name }}</small>
                                             </span>
                                         </label>
@@ -125,7 +125,7 @@
                         <td>{{ "Active" if faculty.is_active else "Inactive" }}</td>
                         <td>
                             {% for capability in faculty.capabilities | sort(attribute='subject.code') %}
-                                {{ capability.subject.code }}{% if not loop.last %}, {% endif %}
+                                {% if capability.subject.code.startswith('NA') %}S{{ capability.subject.semester }}{% else %}{{ capability.subject.code }}{% endif %}{% if not loop.last %}, {% endif %}
                             {% else %}
                                 -
                             {% endfor %}
