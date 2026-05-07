@@ -15,7 +15,9 @@ def create_app():
         # Handle the case where Supabase/Heroku provides 'postgres://' 
         # but SQLAlchemy requires 'postgresql://'
         if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
+            database_url = database_url.replace("postgres://", "postgresql+pg8000://", 1)
+        elif database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+pg8000://", 1)
         app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     else:
         # For Vercel deployments, using SQLite is a fallback.
