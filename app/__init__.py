@@ -21,8 +21,8 @@ def create_app():
         app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     else:
         # For Vercel deployments, using SQLite is a fallback.
-        # We must use /tmp because the Vercel filesystem is read-only elsewhere.
-        app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:////tmp/timetable.db"
+        # We use a relative path that works on both Windows and Linux.
+        app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///timetable.db"
         
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     

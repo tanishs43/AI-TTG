@@ -3,37 +3,40 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI Timetable Dashboard</title>
+    <title>Campus Sync | Premium Academic Scheduling</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
     <div class="layout-wrapper">
         {% if session.get('role') %}
         <aside class="sidebar">
-            <div class="sidebar-logo">
-                <div class="logo-icon"><i class='bx bx-calendar-event'></i></div>
-                <h2>AI-TTG Engine</h2>
-            </div>
+            <a href="{{ url_for('main.admin_dashboard' if session.get('role') == 'admin' else 'main.faculty_dashboard') }}" class="sidebar-logo">
+                <div class="logo-icon"><i class='bx bx-sync'></i></div>
+                <h2>Campus Sync</h2>
+            </a>
             <div class="sidebar-section">
-                <span class="sidebar-label">MENU</span>
+                <span class="sidebar-label">Platform Navigation</span>
                 <nav class="sidebar-nav">
                     {% if session.get('role') == 'admin' %}
-                        <a href="{{ url_for('main.admin_dashboard') }}" class="{{ 'active' if request.endpoint == 'main.admin_dashboard' else '' }}"><i class='bx bx-grid-alt'></i> Overview</a>
-                        <a href="{{ url_for('main.admin_subjects') }}" class="{{ 'active' if request.endpoint == 'main.admin_subjects' else '' }}"><i class='bx bx-book'></i> Subjects</a>
-                        <a href="{{ url_for('main.admin_faculty') }}" class="{{ 'active' if request.endpoint == 'main.admin_faculty' else '' }}"><i class='bx bx-user-circle'></i> Faculty</a>
-                        <a href="{{ url_for('main.admin_timetable') }}" class="{{ 'active' if request.endpoint == 'main.admin_timetable' else '' }}"><i class='bx bx-table'></i> Timetables</a>
+                        <a href="{{ url_for('main.admin_dashboard') }}" class="{{ 'active' if request.endpoint == 'main.admin_dashboard' else '' }}"><i class='bx bxs-dashboard'></i> Overview</a>
+                        <a href="{{ url_for('main.admin_subjects') }}" class="{{ 'active' if request.endpoint == 'main.admin_subjects' else '' }}"><i class='bx bxs-book-content'></i> Subjects</a>
+                        <a href="{{ url_for('main.admin_faculty') }}" class="{{ 'active' if request.endpoint == 'main.admin_faculty' else '' }}"><i class='bx bxs-group'></i> Faculty</a>
+                        <a href="{{ url_for('main.admin_timetable') }}" class="{{ 'active' if request.endpoint == 'main.admin_timetable' else '' }}"><i class='bx bxs-calendar-event'></i> Timetables</a>
                     {% elif session.get('role') == 'faculty' %}
-                        <a href="{{ url_for('main.faculty_dashboard') }}" class="{{ 'active' if request.endpoint == 'main.faculty_dashboard' else '' }}"><i class='bx bx-grid-alt'></i> My Dashboard</a>
+                        <a href="{{ url_for('main.faculty_dashboard') }}" class="{{ 'active' if request.endpoint == 'main.faculty_dashboard' else '' }}"><i class='bx bxs-dashboard'></i> My Dashboard</a>
                     {% endif %}
                 </nav>
             </div>
             <div class="sidebar-spacer"></div>
             <div class="sidebar-footer">
-                <a href="{{ url_for('main.logout') }}" class="logout-btn"><i class='bx bx-log-out'></i> Log out</a>
+                <a href="{{ url_for('main.logout') }}" class="logout-btn"><i class='bx bx-log-out-circle'></i> Terminate Session</a>
             </div>
         </aside>
         {% endif %}
@@ -42,28 +45,28 @@
             {% if session.get('role') %}
             <header class="top-header">
                 <div class="search-wrap">
-                    <i class='bx bx-search'></i>
-                    <input type="text" placeholder="Search application...">
+                    <i class='bx bx-search-alt'></i>
+                    <input type="text" placeholder="Explore Campus Sync...">
                 </div>
                 <div class="top-actions">
-                    <button class="icon-btn"><i class='bx bx-bell'></i></button>
+                    <button class="icon-btn" aria-label="Notifications"><i class='bx bx-bell'></i></button>
                     <div class="user-profile">
                         <div class="avatar">{{ session.get('role')[0]|upper }}</div>
                         <div class="user-info">
-                            <span class="name">{{ session.get('role')|title }} User</span>
+                            <span class="name">{{ session.get('role')|title }} Presence</span>
                         </div>
                     </div>
                 </div>
             </header>
             {% else %}
             <header class="top-header public-header">
-                <div class="sidebar-logo">
-                    <div class="logo-icon"><i class='bx bx-calendar-event'></i></div>
-                    <h2>AI-TTG Engine</h2>
-                </div>
+                <a href="{{ url_for('main.login') }}" class="sidebar-logo">
+                    <div class="logo-icon"><i class='bx bx-sync'></i></div>
+                    <h2>Campus Sync</h2>
+                </a>
                 <nav class="public-nav">
-                    <a href="{{ url_for('main.login') }}">Login</a>
-                    <a href="{{ url_for('main.signup') }}" class="btn-primary">Sign Up</a>
+                    <a href="{{ url_for('main.login') }}" class="secondary-link">Sign In</a>
+                    <a href="{{ url_for('main.signup') }}" class="btn-primary">Get Started</a>
                 </nav>
             </header>
             {% endif %}
@@ -74,7 +77,7 @@
                         <section class="flash-list">
                             {% for category, message in messages %}
                                 <div class="flash {{ category }}">
-                                    <i class='bx {% if category == "success" %}bx-check-circle{% elif category == "error" %}bx-x-circle{% else %}bx-info-circle{% endif %}'></i>
+                                    <i class='bx {% if category == "success" %}bx-check-double{% elif category == "error" %}bx-error-circle{% else %}bx-info-square{% endif %}'></i>
                                     <span>{{ message }}</span>
                                 </div>
                             {% endfor %}
@@ -88,5 +91,89 @@
             </main>
         </div>
     </div>
+
+    <div id="loading-overlay">
+        <div class="loader-spinner"></div>
+        <div class="loading-text">GENERATING TIMETABLE...</div>
+        <p class="muted" style="margin-top: 10px;">This may take up to 30 seconds</p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            gsap.from(".sidebar", { x: -50, opacity: 0, duration: 1, ease: "power4.out" });
+            gsap.from(".top-header", { y: -30, opacity: 0, duration: 1, delay: 0.2, ease: "power4.out" });
+            gsap.from(".page-content", { opacity: 0, y: 20, duration: 0.8, delay: 0.4, ease: "power3.out" });
+        });
+
+        function showLoading() {
+            document.getElementById('loading-overlay').style.display = 'flex';
+            document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        }
+
+        window.downloadTimetable = function(elementId, format, filename) {
+            const originalElement = document.getElementById(elementId);
+            if (!originalElement) return;
+
+            // Create a clone for high-res off-screen rendering
+            const clone = originalElement.cloneNode(true);
+            const renderBox = document.createElement('div');
+            renderBox.className = 'export-render-box';
+            renderBox.appendChild(clone);
+            document.body.appendChild(renderBox);
+
+            // Hide UI elements in clone
+            const actions = clone.querySelector('.timetable-shell-actions');
+            if (actions) actions.style.display = 'none';
+
+            // Ensure clone is full width
+            const cloneGrid = clone.querySelector('.timetable-grid');
+            if (cloneGrid) {
+                cloneGrid.style.transform = 'none';
+                cloneGrid.style.width = 'auto';
+            }
+
+            html2canvas(clone, { 
+                scale: 3, 
+                useCORS: true, 
+                backgroundColor: '#ffffff',
+                logging: false,
+                width: clone.scrollWidth,
+                height: clone.scrollHeight
+            }).then(canvas => {
+                // Cleanup
+                document.body.removeChild(renderBox);
+                
+                const imgData = canvas.toDataURL('image/png');
+                
+                if (format === 'PNG') {
+                    const link = document.createElement('a');
+                    link.download = filename + '.png';
+                    link.href = imgData;
+                    link.click();
+                } else if (format === 'PDF') {
+                    const { jsPDF } = window.jspdf;
+                    const pdf = new jsPDF('l', 'mm', 'a4');
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const pdfHeight = pdf.internal.pageSize.getHeight();
+                    
+                    const ratio = canvas.width / canvas.height;
+                    let finalWidth = pdfWidth - 10;
+                    let finalHeight = finalWidth / ratio;
+                    
+                    if (finalHeight > (pdfHeight - 10)) {
+                        finalHeight = pdfHeight - 10;
+                        finalWidth = finalHeight * ratio;
+                    }
+                    
+                    const marginX = (pdfWidth - finalWidth) / 2;
+                    const marginY = (pdfHeight - finalHeight) / 2;
+                    
+                    pdf.addImage(imgData, 'PNG', marginX, marginY, finalWidth, finalHeight);
+                    pdf.save(filename + '.pdf');
+                }
+            });
+        };
+    </script>
 </body>
 </html>
+

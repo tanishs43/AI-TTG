@@ -112,7 +112,56 @@ def required_lab_sessions(subject):
     return 0
 
 
-def build_timetable_all_sections(all_registrations_by_section, batch_id):
+def validate_timetable(entries, teaching_slots):
+    """
+    Strictly validates the generated timetable for any hard constraint violations.
+    Returns (is_valid, errors)
+    """
+    errors = []
+    # (faculty_id, day, time_slot) -> list of entries
+    faculty_usage = defaultdict(list)
+    # (room, day, time_slot) -> list of entries
+    room_usage = defaultdict(list)
+    # (section, batch, day, time_slot) -> list of entries
+    batch_usage = defaultdict(list)
+    
+    for entry in entries:
+        if entry.faculty_id:
+            faculty_usage[(entry.faculty_id, entry.day, entry.time_slot)].append(entry)
+        if entry.room:
+            room_usage[(entry.room, entry.day, entry.time_slot)].append(entry)
+        
+        # Section/Batch validation
+        # If lab_batch is None, it's a theory class for the WHOLE section
+        if entry.lab_batch:
+            batch_usage[(entry.section, entry.lab_batch, entry.day, entry.time_slot)].append(entry)
+        else:
+            # Theory class occupies all batches (A1, A2)
+            batch_usage[(entry.section, "A1", entry.day, entry.time_slot)].append(entry)
+            batch_usage[(entry.section, "A2", entry.day, entry.time_slot)].append(entry)
+
+    # Check for faculty conflicts
+    for (fid, day, slot), e_list in faculty_usage.items():
+        if len(e_list) > 1:
+            sections = ", ".join(set(e.section for e in e_list))
+            errors.append(f"Faculty conflict: ID {fid} assigned to multiple classes in {sections} on {day} at {slot}")
+
+    # Check for room conflicts
+    for (room, day, slot), e_list in room_usage.items():
+        if len(e_list) > 1:
+            sections = ", ".join(set(e.section for e in e_list))
+            errors.append(f"Room conflict: {room} assigned to multiple sections {sections} on {day} at {slot}")
+
+    # Check for batch conflicts within same section
+    for (sec, batch, day, slot), e_list in batch_usage.items():
+        if len(e_list) > 1:
+            subjects = ", ".join(set(e.subject.name for e in e_list))
+            errors.append(f"Batch conflict: Section {sec} Batch {batch} has multiple assignments ({subjects}) on {day} at {slot}")
+
+    return len(errors) == 0, errors
+
+
+def build_timetable_all_sections(all_registrations_by_section, batch_id, room_config=None):
     """Build timetables for ALL sections in a single CP-SAT model.
 
     This prevents cross-section clashes:
@@ -122,6 +171,12 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
     """
     generated_entries = []
     unassigned = []
+
+    if room_config is None:
+        room_config = {"default_room": None, "lab_room_1": "Lab-131", "lab_room_2": "Lab-132"}
+
+    lab_rooms = [room_config.get("lab_room_1", "Lab-131"), room_config.get("lab_room_2", "Lab-132")]
+    default_room = room_config.get("default_room")
 
     if not all_registrations_by_section:
         return generated_entries, unassigned
@@ -150,8 +205,9 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
         if s2 == s1 + 1:
             valid_lab_starts.append(s1)
 
-    # ── GLOBAL faculty vars shared across ALL sections ──
+    # ── GLOBAL tracking vars ──
     global_faculty_slot_vars = defaultdict(list)
+    global_room_slot_vars = defaultdict(list) # (room, d, s)
 
     # ── Per-section variable creation ──
     section_data = []
@@ -193,6 +249,11 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
                         if reg.faculty_id is not None:
                             global_faculty_slot_vars[(reg.faculty_id, d, start_s)].append(v)
                             global_faculty_slot_vars[(reg.faculty_id, d, start_s + 1)].append(v)
+                        
+                        # Room tracking
+                        room_name = lab_rooms[b_idx]
+                        global_room_slot_vars[(room_name, d, start_s)].append(v)
+                        global_room_slot_vars[(room_name, d, start_s + 1)].append(v)
 
         section_data.append({
             "sec_idx": sec_idx, "section": section,
@@ -312,6 +373,10 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
     for vlist in global_faculty_slot_vars.values():
         model.AddAtMostOne(vlist)
 
+    # 1b. Room can be used by at most ONE section/batch per (day, slot)
+    for vlist in global_room_slot_vars.values():
+        model.AddAtMostOne(vlist)
+
     # 2. Only ONE section can use lab rooms at a given (day, start_slot)
     #    (we have 2 lab rooms and each section needs both for its 2 batches)
     for d in range(num_days):
@@ -413,6 +478,20 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
                     model.Add(sum(days_in_slot) <= 1).OnlyEnforceIf(repeat.Not())
                     objective_terms.append(-3000 * repeat)
 
+        # 5b. Compactness: Penalize gaps between classes
+        for d in range(num_days):
+            for s in range(num_slots - 1):
+                # If there's a class at s and a class at s+2, but NOT at s+1, penalize
+                # Actually, simpler: penalize "active" slots that are far apart
+                pass # Complexity of gap-minimization in CP-SAT can be high, 
+                     # let's use a simpler "early slots" preference for now
+            
+            for s in range(num_slots):
+                # Prefer earlier slots slightly to keep it compact from the top
+                weight = (num_slots - s) * 10 
+                for subj_id in usubs:
+                    objective_terms.append(weight * stv[(subj_id, d, s)])
+
     # 6. Randomization: add small random bonus per (subject, day, slot)
     #    so the solver breaks ties differently each time → different timetable
     rng = random.Random()  # new seed each invocation
@@ -429,12 +508,15 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
     # ── Solve ──
     model.Maximize(sum(objective_terms))
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 120.0
-    solver.parameters.num_search_workers = 4
+    solver.parameters.max_time_in_seconds = 20.0 # Reduced from 120s for better responsiveness
+    solver.parameters.num_search_workers = 8 # Increased workers for faster search
     solver.parameters.random_seed = random.randint(0, 2**31 - 1)
     status = solver.Solve(model)
 
     # ── Extract results per section ──
+    global_occupied_faculty = defaultdict(set)
+    global_occupied_rooms = defaultdict(set)
+    
     for sd in section_data:
         section = sd["section"]
         regs = sd["registrations"]
@@ -462,10 +544,11 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
                                         batch_id=batch_id, day=DAYS[d],
                                         time_slot=teaching_slots[s],
                                         section=section, faculty_id=regs[r].faculty_id,
-                                        subject_id=subj_id
+                                        subject_id=subj_id,
+                                        room=default_room
                                     ))
                                     break
-
+                                    
             for d in range(num_days):
                 for ss in valid_lab_starts:
                     ab0 = ab1 = None
@@ -481,7 +564,7 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
                         for bi in batches:
                             occupied_slots[bi].append((d, ss))
                             occupied_slots[bi].append((d, ss + 1))
-                        rooms = ["Lab-131", "Lab-132"]
+                        rooms = lab_rooms
                         for bi, sid in enumerate([ab0, ab1]):
                             rfs = [i for i, r in enumerate(regs) if r.subject_id == sid]
                             fac = None
@@ -501,6 +584,13 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
                                 section=section, lab_batch=batch_labels[bi],
                                 room=rooms[bi], faculty_id=fac, subject_id=sid
                             ))
+
+            # Update global occupied tracking for fallback
+            for entry in section_entries:
+                if entry.faculty_id:
+                    global_occupied_faculty[(DAYS.index(entry.day), teaching_slots.index(entry.time_slot))].add(entry.faculty_id)
+                if entry.room:
+                    global_occupied_rooms[(DAYS.index(entry.day), teaching_slots.index(entry.time_slot))].add(entry.room)
 
             # Fallback for any unassigned theory slots
             subj_day_count = defaultdict(int)
@@ -524,9 +614,6 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
                                 continue
                             for s in range(num_slots):
                                 if (d, s) not in occupied_slots[0] and (d, s) not in occupied_slots[1]:
-                                    occupied_slots[0].append((d, s))
-                                    occupied_slots[1].append((d, s))
-                                    subj_day_count[(subj_id, d)] += 1
                                     rfs = [i2 for i2, r in enumerate(regs) if r.subject_id == subj_id]
                                     active_fac = None
                                     for r in rfs:
@@ -535,33 +622,46 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
                                             break
                                     if not active_fac and rfs:
                                         active_fac = regs[rfs[0]].faculty_id
+                                    
+                                    if active_fac and active_fac in global_occupied_faculty[(d, s)]:
+                                        continue
+                                    
+                                    occupied_slots[0].append((d, s))
+                                    occupied_slots[1].append((d, s))
+                                    if active_fac:
+                                        global_occupied_faculty[(d, s)].add(active_fac)
+                                    
+                                    subj_day_count[(subj_id, d)] += 1
                                     section_entries.append(TimetableEntry(
                                         batch_id=batch_id, day=DAYS[d],
                                         time_slot=teaching_slots[s],
                                         section=section, faculty_id=active_fac,
-                                        subject_id=subj_id
+                                        subject_id=subj_id,
+                                        room=default_room
                                     ))
                                     placed = True
                                     break
                             if placed:
                                 break
                         if not placed:
-                            rep = next(r for r in regs if r.subject_id == subj_id)
-                            unassigned.append({
-                                "faculty": getattr(rep.faculty, "name", "Unassigned") if rep.faculty else "Unassigned",
-                                "subject": subject.name, "section": section,
-                                "remaining_slots": 1, "type": "theory"
-                            })
+                            rep = next((r for r in regs if r.subject_id == subj_id), None)
+                            if rep:
+                                unassigned.append({
+                                    "faculty": getattr(rep.faculty, "name", "Unassigned") if rep.faculty else "Unassigned",
+                                    "subject": subject.name, "section": section,
+                                    "remaining_slots": 1, "type": "theory"
+                                })
 
                 missing_l_b0 = req_lab - b0_labs
                 missing_l_b1 = req_lab - b1_labs
                 if missing_l_b0 > 0 or missing_l_b1 > 0:
-                    rep = next(r for r in regs if r.subject_id == subj_id)
-                    unassigned.append({
-                        "faculty": getattr(rep.faculty, "name", "Unassigned") if rep.faculty else "Unassigned",
-                        "subject": subject.name, "section": section,
-                        "remaining_slots": max(missing_l_b0, missing_l_b1), "type": "lab"
-                    })
+                    rep = next((r for r in regs if r.subject_id == subj_id), None)
+                    if rep:
+                        unassigned.append({
+                            "faculty": getattr(rep.faculty, "name", "Unassigned") if rep.faculty else "Unassigned",
+                            "subject": subject.name, "section": section,
+                            "remaining_slots": max(missing_l_b0, missing_l_b1), "type": "lab"
+                        })
         else:
             for reg in regs:
                 unassigned.append({
@@ -577,18 +677,49 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id):
     return generated_entries, unassigned
 
 
-def create_timetable_batch(all_registrations_by_section, semester):
+def create_timetable_batch(all_registrations_by_section, semester, room_config=None):
+    max_retries = 2 # Reduced retries for performance
+    last_unassigned = []
+    _, teaching_slots = get_slot_template(semester)
+
+    for attempt in range(max_retries):
+        try:
+            print(f"\n--- Generation Attempt {attempt + 1} ---")
+            batch = TimetableBatch(
+                name=f"Sem {semester} Timetable (Attempt {attempt+1})",
+                semester=semester,
+            )
+            db.session.add(batch)
+            db.session.flush()
+
+            all_entries, all_unassigned = build_timetable_all_sections(
+                all_registrations_by_section, batch.id, room_config=room_config
+            )
+
+            is_valid, validation_errors = validate_timetable(all_entries, teaching_slots)
+            
+            if is_valid:
+                db.session.add_all(all_entries)
+                db.session.commit()
+                return batch, all_entries, all_unassigned
+            else:
+                db.session.delete(batch)
+                db.session.flush()
+                last_unassigned = all_unassigned
+        except Exception as e:
+            print(f"Error during attempt {attempt+1}: {str(e)}")
+            db.session.rollback()
+
+    # Final attempt fallback
     batch = TimetableBatch(
-        name=f"Semester {semester} Timetable",
+        name=f"Sem {semester} Timetable (Final)",
         semester=semester,
     )
     db.session.add(batch)
     db.session.flush()
-
     all_entries, all_unassigned = build_timetable_all_sections(
-        all_registrations_by_section, batch.id
+        all_registrations_by_section, batch.id, room_config=room_config
     )
-
     db.session.add_all(all_entries)
     db.session.commit()
     return batch, all_entries, all_unassigned

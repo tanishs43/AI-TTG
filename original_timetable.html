@@ -1,0 +1,66 @@
+﻿{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+    <div class="section-head">
+        <div>
+            <h2>All Sections Timetable</h2>
+            {% if selected_batch %}
+                <p class="muted">{{ selected_batch.name }} | Semester {{ selected_batch.semester }}</p>
+            {% endif %}
+        </div>
+        <form method="get" class="inline-form">
+            <label>Saved Timetable
+                <select name="batch_id" onchange="this.form.submit()">
+                    {% for batch in batches %}
+                        <option value="{{ batch.id }}" {% if selected_batch and selected_batch.id == batch.id %}selected{% endif %}>
+                            {{ batch.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+    </div>
+    {% if not sections %}
+        <p>No timetable generated yet.</p>
+    {% endif %}
+    {% for section in sections %}
+        <div class="table-wrap timetable-shell">
+            <h3>Section {{ section }}</h3>
+            <table class="timetable-grid">
+                <thead>
+                    <tr>
+                        <th>Day / Time</th>
+                        {% for column in timetable_columns %}
+                            <th class="{% if column.type == 'break' %}break-head{% endif %}">{{ column.label|safe }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for day in days %}
+                        <tr>
+                            <th>{{ day }}</th>
+                            {% for column in timetable_columns %}
+                                {% if column.type == 'break' %}
+                                    <td class="break-cell">{{ column.value }}</td>
+                                {% else %}
+                                    {% set entry = timetable_map.get((section, day), {}).get(column.value) %}
+                                    <td class="class-cell">
+                                        {% if entry %}
+                                            <strong>{{ entry.subject.code }}</strong><br>
+                                            {{ entry.subject.name }}<br>
+                                            {{ entry.faculty.name }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endfor %}
+</section>
+{% endblock %}

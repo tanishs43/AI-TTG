@@ -1,59 +1,76 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="grid two-col">
+<section class="grid two-col" style="margin-bottom: 32px;">
     <article class="card">
-        <h2>{{ faculty.name }}</h2>
-        <p class="muted">{{ faculty.email }}</p>
-        <p class="muted">Department: {{ faculty.department }}</p>
-        <p class="muted">Maximum weekly load: {{ faculty.max_weekly_load }} slots</p>
-        <p class="muted">
-            {% if faculty.is_active %}
-                Active for timetable generation.
-            {% else %}
-                Inactive for timetable generation.
-            {% endif %}
-        </p>
+        <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 24px;">
+            <div class="avatar" style="width: 64px; height: 64px; font-size: 1.5rem; border-radius: 16px;">{{ faculty.name[0]|upper }}</div>
+            <div>
+                <h1 style="font-size: 1.8rem; margin: 0; letter-spacing: -1px;">{{ faculty.name }}</h1>
+                <p class="muted" style="margin: 0;">{{ faculty.email }}</p>
+            </div>
+        </div>
+        <div style="display: grid; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+            <div style="display: flex; justify-content: space-between;">
+                <span class="muted">Department Scope</span>
+                <strong>{{ faculty.department }}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span class="muted">Weekly Allocation</span>
+                <strong>{{ faculty.max_weekly_load }} Slots</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span class="muted">Generation Status</span>
+                {% if faculty.is_active %}
+                    <span class="badge badge-high">Synchronized</span>
+                {% else %}
+                    <span class="badge badge-low">Standby</span>
+                {% endif %}
+            </div>
+        </div>
     </article>
 
     <article class="card">
-        <h2>Your Subject Capabilities</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Subject</th>
-                    <th>Theory / Week</th>
-                    <th>Lab / Week</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in capabilities %}
+        <h2><i class='bx bx-book-bookmark'></i> Specialized Domain</h2>
+        <p class="muted">Configured subject expertise for the current academic session.</p>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
                     <tr>
-                        <td>{{ item.subject.department }} | Sem {{ item.subject.semester }} | {{ item.subject.code }} | {{ item.subject.name }}</td>
-                        <td>{{ item.subject.theory_lectures_per_week }}</td>
-                        <td>{{ item.subject.lab_sessions_per_week if item.subject.has_lab else 0 }}</td>
+                        <th>Subject Domain</th>
+                        <th>Theory</th>
+                        <th>Lab</th>
                     </tr>
-                {% else %}
-                    <tr>
-                        <td colspan="3">No subject capabilities have been mapped to this faculty account yet.</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {% for item in capabilities %}
+                        <tr>
+                            <td><strong>{{ item.subject.code }}</strong> | {{ item.subject.name }}</td>
+                            <td>{{ item.subject.theory_lectures_per_week }}h</td>
+                            <td>{{ item.subject.lab_sessions_per_week if item.subject.has_lab else 0 }}h</td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="3" style="text-align: center; padding: 40px;" class="muted">Domain mappings pending synchronization.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </article>
 </section>
 
 <section class="card">
-    <div class="section-head">
+    <div class="section-head" style="margin-bottom: 32px;">
         <div>
-            <h2>Your Timetable</h2>
+            <h2><i class='bx bx-calendar'></i> Personalized Schedule</h2>
             {% if selected_batch %}
-                <p class="muted">{{ selected_batch.name }} | Semester {{ selected_batch.semester }}</p>
+                <span class="badge" style="background: white; color: black; margin-top: 8px;">{{ selected_batch.name }}</span>
             {% endif %}
         </div>
         <form method="get" class="inline-form">
-            <label>Saved Timetable
-                <select name="batch_id" onchange="this.form.submit()">
+            <label style="font-size: 0.7rem;">Archived Cycles
+                <select name="batch_id" onchange="this.form.submit()" style="background: var(--surface-elevated); border-color: var(--border-color);">
                     {% for batch in batches %}
                         <option value="{{ batch.id }}" {% if selected_batch and selected_batch.id == batch.id %}selected{% endif %}>
                             {{ batch.name }}
@@ -63,14 +80,25 @@
             </label>
         </form>
     </div>
+
     {% if not entries %}
-        <p>No timetable has been generated for you yet.</p>
+        <div style="padding: 80px; text-align: center; background: rgba(255, 255, 255, 0.02); border-radius: 24px; border: 1px dashed var(--border-color);">
+            <i class='bx bx-time-five' style="font-size: 4rem; color: var(--text-muted); margin-bottom: 16px;"></i>
+            <p class="muted">No scheduled sessions detected for the selected cycle.</p>
+        </div>
     {% else %}
-        <div class="table-wrap timetable-shell">
+        <div class="table-wrap timetable-shell" id="faculty-timetable">
+            <div class="timetable-shell-header">
+                <h3>Your Schedule</h3>
+                <div class="timetable-shell-actions">
+                    <button type="button" class="btn-primary secondary" onclick="downloadTimetable('faculty-timetable', 'PDF', 'Sem{{ selected_batch.semester }}_{{ faculty.name | replace(" ", "_") }}_Schedule')"><i class='bx bxs-file-pdf'></i> PDF</button>
+                    <button type="button" class="btn-primary secondary" onclick="downloadTimetable('faculty-timetable', 'PNG', 'Sem{{ selected_batch.semester }}_{{ faculty.name | replace(" ", "_") }}_Schedule')"><i class='bx bxs-image'></i> PNG</button>
+                </div>
+            </div>
             <table class="timetable-grid">
                 <thead>
                     <tr>
-                        <th>Day / Time</th>
+                        <th>Timeline</th>
                         {% for column in timetable_columns %}
                             <th class="{% if column.type == 'break' %}break-head{% endif %}">{{ column.label|safe }}</th>
                         {% endfor %}
@@ -79,7 +107,7 @@
                 <tbody>
                     {% for day in days %}
                         <tr>
-                            <th>{{ day }}</th>
+                            <th>{{ day|upper }}</th>
                             {% set skip = namespace(value=False) %}
                             {% for column in timetable_columns %}
                                 {% if skip.value %}
@@ -97,7 +125,6 @@
                                             {% if next_column.type != 'break' %}
                                                 {% set next_entries = timetable_map.get(day, {}).get(next_column.value) %}
                                                 {% if next_entries and next_entries[0].subject_id == entries[0].subject_id and entries[0].lab_batch %}
-                                                    {# This and the next block are exactly the same lab session! #}
                                                     {% set is_lab_start.value = True %}
                                                     {% set skip.value = True %}
                                                 {% endif %}
@@ -107,21 +134,33 @@
 
                                     {% if is_lab_start.value %}
                                         <td class="class-cell lab-cell" colspan="2">
-                                            <strong>{{ entries[0].subject.name }} (LAB)</strong><br>
-                                            {{ entries[0].subject.department }}<br>
-                                            Sem {{ entries[0].subject.semester }}<br>
-                                            Section {{ entries[0].section }} ({{ entries[0].lab_batch }}) [{{ entries[0].room }}]
+                                            <div class="hover-scale">
+                                                <strong>{{ entries[0].subject.name }}</strong>
+                                                <div style="margin-top: 8px;">
+                                                    <span class="badge">LAB</span>
+                                                    <span class="badge">SEC {{ entries[0].section }}</span>
+                                                    <span class="badge">{{ entries[0].lab_batch }}</span>
+                                                </div>
+                                                <div class="muted" style="margin-top: 12px; font-size: 0.8rem;">
+                                                    <i class='bx bx-map-pin'></i> ROOM {{ entries[0].room }}
+                                                </div>
+                                            </div>
                                         </td>
                                     {% else %}
                                         <td class="class-cell">
                                             {% if entries %}
                                                 {% set entry = entries[0] %}
-                                                <strong>{{ entry.subject.name }}</strong><br>
-                                                {{ entry.subject.department }}<br>
-                                                Sem {{ entry.subject.semester }}<br>
-                                                Section {{ entry.section }}
+                                                <div class="hover-scale">
+                                                    <strong>{{ entry.subject.name }}</strong>
+                                                    <div style="margin-top: 8px;">
+                                                        <span class="badge">SEC {{ entry.section }}</span>
+                                                    </div>
+                                                    <div class="muted" style="margin-top: 12px; font-size: 0.8rem;">
+                                                        <i class='bx bx-map-pin'></i> ROOM {{ entry.room }}
+                                                    </div>
+                                                </div>
                                             {% else %}
-                                                -
+                                                <span class="muted">-</span>
                                             {% endif %}
                                         </td>
                                     {% endif %}
@@ -135,3 +174,4 @@
     {% endif %}
 </section>
 {% endblock %}
+

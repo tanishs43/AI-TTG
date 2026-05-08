@@ -3,18 +3,27 @@
 {% block content %}
 <section class="auth-shell">
     <article class="card auth-card">
-        <h2>Login</h2>
-        <p class="muted">Admin login is preloaded with email <strong>tanishs1213@gmail.com</strong> and password <strong>admin</strong>.</p>
+        <h1>Welcome Back</h1>
+        <p class="muted">Access your premium scheduling environment. Admin credentials are pre-configured for your convenience.</p>
+        
+        <div class="badge" style="margin: 1rem 0; padding: 12px; font-size: 0.8rem; background: rgba(255, 255, 255, 0.05); color: var(--text-secondary);">
+            <i class='bx bxs-info-circle'></i> <strong>Admin:</strong> tanishs1213@gmail.com | <strong>Pass:</strong> admin
+        </div>
+
         <form method="post" class="form">
-            <label>Email
-                <input type="email" name="email" required>
+            <label>Identification
+                <input type="email" name="email" placeholder="email@university.edu" required>
             </label>
-            <label>Password
-                <input type="password" name="password" required>
+            <label>Security Key
+                <input type="password" name="password" placeholder="••••••••" required>
             </label>
-            <button type="submit">Login</button>
+            <button type="submit" class="hover-scale">Authorize Access</button>
         </form>
-        <p class="muted">Faculty users can create an account from the signup page.</p>
+
+        <div style="margin-top: 2rem; text-align: center; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+            <p class="muted">New to the platform? <a href="{{ url_for('main.signup') }}" class="text-link">Establish Faculty Identity</a></p>
+        </div>
     </article>
 </section>
 {% endblock %}
+

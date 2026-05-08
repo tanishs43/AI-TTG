@@ -3,19 +3,26 @@
 {% block content %}
 <section class="auth-shell">
     <article class="card auth-card">
-        <h2>Faculty Signup</h2>
+        <h1>Faculty Onboarding</h1>
+        <p class="muted">Join the Campus Sync network to manage your academic presence and scheduling requirements.</p>
+        
         <form method="post" class="form">
-            <label>Name
-                <input type="text" name="name" required>
+            <label>Full Legal Name
+                <input type="text" name="name" placeholder="John Doe" required>
             </label>
-            <label>Email
-                <input type="email" name="email" required>
+            <label>Academic Email
+                <input type="email" name="email" placeholder="faculty@university.edu" required>
             </label>
-            <label>Password
-                <input type="password" name="password" required>
+            <label>Security Key
+                <input type="password" name="password" placeholder="Minimum 8 characters" required>
             </label>
-            <button type="submit">Create Faculty Account</button>
+            <button type="submit" class="hover-scale">Register Identity</button>
         </form>
+
+        <div style="margin-top: 2rem; text-align: center; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+            <p class="muted">Already registered? <a href="{{ url_for('main.login') }}" class="text-link">Return to Portal</a></p>
+        </div>
     </article>
 </section>
 {% endblock %}
+

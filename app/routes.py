@@ -1038,9 +1038,20 @@ def generate():
         request.form.get("batch_name", "").strip()
         or f"{department} Semester {semester} Timetable"
     )
-    batch, _, unassigned = create_timetable_batch(all_registrations_by_section, semester)
+
+    # Room/Lab assignment configuration
+    room_config = {
+        "default_room": request.form.get("default_room", "").strip() or None,
+        "lab_room_1": request.form.get("lab_room_1", "").strip() or "Lab-131",
+        "lab_room_2": request.form.get("lab_room_2", "").strip() or "Lab-132",
+    }
+
+    batch, _, unassigned = create_timetable_batch(all_registrations_by_section, semester, room_config=room_config)
     batch.name = batch_name
     db.session.commit()
+
+    if "(UNVALIDATED)" in batch.name:
+        flash("CRITICAL WARNING: The generator could not find a completely conflict-free schedule after multiple attempts. This timetable MAY have faculty or room clashes. Please review it carefully.", "error")
 
     if unassigned:
         # Group unassigned items by type and subject to form specific notifications

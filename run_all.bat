@@ -1,0 +1,6 @@
+@echo off
+echo Starting Backend...
+start "Backend" cmd /k ".\venv\Scripts\python.exe run.py"
+echo Starting Frontend...
+cd frontend
+start "Frontend" cmd /k "npm run dev"
