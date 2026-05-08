@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="grid two-col">
+<section class="grid two-col" style="margin-bottom: 32px;">
     <article class="card">
-        <h2>Subject Context</h2>
-        <p class="muted">Choose the academic context first. Subjects are always configured for one department and one semester.</p>
+        <h2><i class='bx bx-filter-alt'></i> Academic Context</h2>
+        <p class="muted">Initialize the synchronized domain. Subjects are partitioned by departmental scope and semester cycles.</p>
         <form method="get" class="form">
-            <label>Department
+            <label>Departmental Domain
                 <select name="department" required>
-                    <option value="">Select department</option>
+                    <option value="">Select Domain</option>
                     {% if selected_department and selected_department not in available_departments %}
                         <option value="{{ selected_department }}" selected>{{ selected_department }}</option>
                     {% endif %}
@@ -20,25 +20,29 @@
                     {% endfor %}
                 </select>
             </label>
-            <label>Semester
+            <label>Semester Cycle
                 <select name="semester" required>
-                    <option value="">Select semester</option>
+                    <option value="">Select Cycle</option>
                     {% for semester in semester_options %}
                         <option value="{{ semester }}" {% if selected_semester == semester %}selected{% endif %}>Semester {{ semester }}</option>
                     {% endfor %}
                 </select>
             </label>
-            <button type="submit">Load Subjects</button>
+            <button type="submit" class="hover-scale">Synchronize View</button>
         </form>
         {% if selected_department and selected_semester %}
-            <p class="muted">Current active configured demand: {{ configured_demand }} slots.</p>
+            <div class="badge badge-high" style="margin-top: 24px; display: block; text-align: center; font-size: 0.9rem; padding: 12px;">
+                Active Demand: <strong>{{ configured_demand }}</strong> Slots
+            </div>
         {% endif %}
     </article>
 
     <article class="card">
-        <h2>{% if edit_subject %}Edit Subject{% else %}Create Subject{% endif %}</h2>
+        <h2><i class='bx bx-book-add'></i> {% if edit_subject %}Refine Module{% else %}Register Module{% endif %}</h2>
         {% if not selected_department or not selected_semester %}
-            <p>Select a department and semester before creating or viewing subjects.</p>
+            <div style="padding: 60px; text-align: center; background: rgba(255, 255, 255, 0.02); border-radius: 24px;">
+                <p class="muted">Domain context required to initialize subject configuration.</p>
+            </div>
         {% else %}
             {% set is_standalone_lab = edit_subject and edit_subject.is_lab and edit_subject.theory_lectures_per_week == 0 %}
             {% set is_free_lecture = edit_subject and edit_subject.is_free_lecture %}
@@ -48,95 +52,113 @@
                 {% if edit_subject %}
                     <input type="hidden" name="edit_subject_id" value="{{ edit_subject.id }}">
                 {% endif %}
-                <label id="subject-code-label" {% if is_free_lecture %}style="display: none;"{% endif %}>Subject Code
-                    <input
-                        type="text"
-                        name="code"
-                        id="subject-code"
-                        value="{{ '' if (edit_subject and edit_subject.code.startswith('NA')) or is_free_lecture else (edit_subject.code if edit_subject else '') }}"
-                        placeholder="Leave blank for no subject code"
-                    >
+                
+                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px;">
+                    <label id="subject-code-label" {% if is_free_lecture %}style="display: none;"{% endif %}>Identifier
+                        <input
+                            type="text"
+                            name="code"
+                            id="subject-code"
+                            value="{{ '' if (edit_subject and edit_subject.code.startswith('NA')) or is_free_lecture else (edit_subject.code if edit_subject else '') }}"
+                            placeholder="E.g. BT-101"
+                        >
+                    </label>
+                    <label>Module Name
+                        <input type="text" name="name" value="{{ edit_subject.name if edit_subject else '' }}" placeholder="Subject Title" required>
+                    </label>
+                </div>
+
+                <label>Designation (Short Name)
+                    <input type="text" name="short_name" value="{{ edit_subject.short_name if edit_subject and edit_subject.short_name else '' }}" placeholder="E.g. COA">
                 </label>
-                <label>Subject Name
-                    <input type="text" name="name" value="{{ edit_subject.name if edit_subject else '' }}" required>
-                </label>
-                <label>Short Name (Optional)
-                    <input type="text" name="short_name" value="{{ edit_subject.short_name if edit_subject and edit_subject.short_name else '' }}" placeholder="e.g. COA">
-                </label>
-                <label class="check-row">
-                    <input type="checkbox" name="is_free_lecture" id="is-free-lecture" {% if is_free_lecture %}checked{% endif %}>
-                    <span>Add as free lecture subject (Library, Sports, etc.)</span>
-                </label>
-                <label class="check-row">
-                    <input type="checkbox" name="standalone_lab" id="standalone-lab" {% if is_standalone_lab %}checked{% endif %}>
-                    <span>This is a standalone lab only</span>
-                </label>
-                <label>Theory Lectures Per Week
-                    <input type="number" name="theory_lectures_per_week" min="0" value="{{ edit_subject.theory_lectures_per_week if edit_subject else 3 }}" required>
-                </label>
-                <label class="check-row">
+
+                <div style="display: grid; gap: 12px; margin: 16px 0; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid var(--border-color);">
+                    <label class="check-row">
+                        <input type="checkbox" name="is_free_lecture" id="is-free-lecture" {% if is_free_lecture %}checked{% endif %}>
+                        <span style="font-size: 0.9rem;">Flexible Allocation (Library, Sports, etc.)</span>
+                    </label>
+                    <label class="check-row">
+                        <input type="checkbox" name="standalone_lab" id="standalone-lab" {% if is_standalone_lab %}checked{% endif %}>
+                        <span style="font-size: 0.9rem;">Standalone Laboratory Entity</span>
+                    </label>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <label>Theory Slots / Week
+                        <input type="number" name="theory_lectures_per_week" min="0" value="{{ edit_subject.theory_lectures_per_week if edit_subject else 3 }}" required>
+                    </label>
+                    <label id="lab-session-field">Lab Slots / Week
+                        <input type="number" name="lab_sessions_per_week" min="0" value="{{ edit_subject.lab_sessions_per_week if edit_subject and edit_subject.has_lab else 0 }}">
+                    </label>
+                </div>
+
+                <label class="check-row" style="margin-bottom: 24px;">
                     <input type="checkbox" name="has_lab" id="has-lab" {% if edit_subject and edit_subject.has_lab %}checked{% endif %}>
-                    <span>Includes laboratory component</span>
+                    <span style="font-size: 0.9rem;">Integrated Laboratory Component</span>
                 </label>
-                <label id="lab-session-field">Lab Sessions Per Week
-                    <input type="number" name="lab_sessions_per_week" min="0" value="{{ edit_subject.lab_sessions_per_week if edit_subject and edit_subject.has_lab else 0 }}">
-                </label>
-                <p class="muted">Use a code like BT-101 for regular subjects. Use NA for free lectures such as Library or Sports. Choose standalone lab for lab-only entries with no theory subject.</p>
-                <button type="submit">{% if edit_subject %}Update Subject Configuration{% else %}Save Subject Configuration{% endif %}</button>
-                {% if edit_subject %}
-                    <button type="submit" class="danger" formaction="{{ url_for('main.delete_subject', subject_id=edit_subject.id) }}" formmethod="post">Remove Subject</button>
-                    <a class="text-link" href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester) }}">Cancel Edit</a>
-                {% endif %}
+
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <button type="submit" class="hover-scale">{% if edit_subject %}Apply Synchronization{% else %}Register Module{% endif %}</button>
+                    {% if edit_subject %}
+                        <div style="display: flex; gap: 12px;">
+                            <button type="submit" class="danger hover-scale" formaction="{{ url_for('main.delete_subject', subject_id=edit_subject.id) }}" formmethod="post" style="flex: 1;">Purge Module</button>
+                            <a class="secondary badge hover-scale" href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester) }}" style="flex: 1; padding: 14px; text-align: center;">Cancel</a>
+                        </div>
+                    {% endif %}
+                </div>
             </form>
         {% endif %}
     </article>
 </section>
 
 <section class="card">
-    <div class="section-head">
+    <div class="section-head" style="margin-bottom: 24px;">
         <div>
-            <h2>Configured Subjects</h2>
+            <h2><i class='bx bx-list-ul'></i> Domain Modules</h2>
             {% if selected_department and selected_semester %}
-                <p class="muted">{{ selected_department }} | Semester {{ selected_semester }}</p>
+                <p class="muted">{{ selected_department }} | Cycle {{ selected_semester }}</p>
             {% endif %}
         </div>
     </div>
     {% if not selected_department or not selected_semester %}
-        <p>No subject list is shown until a department and semester are selected.</p>
+        <p class="muted">Select a departmental cycle to view active modules.</p>
     {% elif not subjects %}
-        <p>No subjects are configured yet for this academic context.</p>
+        <div style="padding: 60px; text-align: center; background: rgba(255, 255, 255, 0.02); border-radius: 24px;">
+            <p class="muted">No modules detected for the selected cycle.</p>
+        </div>
     {% else %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Short Name</th>
-                    <th>Theory / Week</th>
-                    <th>Lab / Week</th>
-                    <th>Edit</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for subject in subjects %}
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
                     <tr>
-                        <td>{{ "" if subject.code.startswith("NA") else subject.code }}</td>
-                        <td>{{ subject.name }}</td>
-                        <td>{{ subject.short_name if subject.short_name else '-' }}</td>
-                        <td>{{ subject.theory_lectures_per_week }}{% if subject.is_free_lecture %} (Free){% endif %}</td>
-                        <td>{{ subject.lab_sessions_per_week if subject.has_lab else 0 }}{% if subject.is_lab %} (Lab Only){% endif %}</td>
-                        <td class="icon-cell">
-                            <a
-                                class="icon-button"
-                                href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester, edit_subject_id=subject.id) }}"
-                                title="Edit subject"
-                                aria-label="Edit subject {{ subject.name }}"
-                            >&#9998;</a>
-                        </td>
+                        <th>Identifier</th>
+                        <th>Module Title</th>
+                        <th>Designation</th>
+                        <th>Theory</th>
+                        <th>Lab</th>
+                        <th style="text-align: right;">Operations</th>
                     </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {% for subject in subjects %}
+                        <tr class="hover-scale">
+                            <td><span class="badge" style="font-weight: 800;">{{ "" if subject.code.startswith("NA") else subject.code }}</span></td>
+                            <td><strong>{{ subject.name }}</strong></td>
+                            <td><span class="muted">{{ subject.short_name if subject.short_name else '-' }}</span></td>
+                            <td><strong>{{ subject.theory_lectures_per_week }}</strong> <small class="muted">{% if subject.is_free_lecture %}Flexible{% else %}Slots{% endif %}</small></td>
+                            <td><strong>{{ subject.lab_sessions_per_week if subject.has_lab else 0 }}</strong> <small class="muted">{% if subject.is_lab %}Solo Lab{% else %}Slots{% endif %}</small></td>
+                            <td style="text-align: right;">
+                                <a
+                                    class="badge hover-scale"
+                                    href="{{ url_for('main.admin_subjects', department=selected_department, semester=selected_semester, edit_subject_id=subject.id) }}"
+                                    style="background: white; color: black;"
+                                ><i class='bx bx-edit-alt'></i> Edit</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% endif %}
 </section>
 
@@ -150,64 +172,39 @@
     const theoryField = document.querySelector('input[name="theory_lectures_per_week"]');
 
     function syncLabField() {
-        if (!hasLab || !labSessionField || !theoryField) {
-            return;
-        }
+        if (!hasLab || !labSessionField || !theoryField) return;
         const input = labSessionField.querySelector("input");
         const isFreeLecture = freeLecture && freeLecture.checked;
         const isStandaloneLab = standaloneLab && standaloneLab.checked;
+        
         if (isFreeLecture) {
-            if (standaloneLab) {
-                standaloneLab.checked = false;
-                standaloneLab.disabled = true;
-            }
-            if (codeLabel) {
-                codeLabel.style.display = "none";
-            }
+            if (standaloneLab) { standaloneLab.checked = false; standaloneLab.disabled = true; }
+            if (codeLabel) codeLabel.style.display = "none";
             if (codeField) {
                 codeField.required = false;
-                codeField.placeholder = "Leave blank for no subject code";
-                if (codeField.value.trim() === "NA") {
-                    codeField.value = "";
-                }
+                if (codeField.value.trim() === "NA") codeField.value = "";
             }
             hasLab.checked = false;
             hasLab.disabled = true;
             theoryField.readOnly = false;
         } else if (isStandaloneLab) {
-            if (freeLecture) {
-                freeLecture.disabled = true;
-            }
-            if (codeLabel) {
-                codeLabel.style.display = "";
-            }
+            if (freeLecture) freeLecture.disabled = true;
+            if (codeLabel) codeLabel.style.display = "";
             if (codeField) {
                 codeField.required = false;
-                codeField.placeholder = "Leave blank for no subject code";
-                if (codeField.value.trim() === "NA") {
-                    codeField.value = "";
-                }
+                if (codeField.value.trim() === "NA") codeField.value = "";
             }
             hasLab.checked = true;
             hasLab.disabled = true;
             theoryField.value = "0";
             theoryField.readOnly = true;
         } else {
-            if (freeLecture) {
-                freeLecture.disabled = false;
-            }
-            if (standaloneLab) {
-                standaloneLab.disabled = false;
-            }
-            if (codeLabel) {
-                codeLabel.style.display = "";
-            }
+            if (freeLecture) freeLecture.disabled = false;
+            if (standaloneLab) standaloneLab.disabled = false;
+            if (codeLabel) codeLabel.style.display = "";
             if (codeField) {
                 codeField.required = false;
-                codeField.placeholder = "Leave blank for no subject code";
-                if (codeField.value.trim() === "NA") {
-                    codeField.value = "";
-                }
+                if (codeField.value.trim() === "NA") codeField.value = "";
             }
             hasLab.disabled = false;
             theoryField.readOnly = false;
@@ -220,13 +217,10 @@
 
     if (hasLab && labSessionField) {
         hasLab.addEventListener("change", syncLabField);
-        if (freeLecture) {
-            freeLecture.addEventListener("change", syncLabField);
-        }
-        if (standaloneLab) {
-            standaloneLab.addEventListener("change", syncLabField);
-        }
+        if (freeLecture) freeLecture.addEventListener("change", syncLabField);
+        if (standaloneLab) standaloneLab.addEventListener("change", syncLabField);
         syncLabField();
     }
 </script>
 {% endblock %}
+

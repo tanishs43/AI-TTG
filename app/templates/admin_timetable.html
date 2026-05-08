@@ -1,110 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-<style>
-@media print {
-    @page {
-        margin: 10mm;
-    }
-    html, body {
-        background: #fff;
-        font-family: "Times New Roman", Times, serif !important;
-        font-size: 9.5pt !important;
-        line-height: 1.1 !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-    }
-    .sidebar, .top-header, .section-head, .flash-list {
-        display: none !important;
-    }
-    .main-content, .content-wrapper, .layout-wrapper {
-        margin: 0 !important;
-        padding: 0 !important;
-        width: 100% !important;
-    }
-    .card {
-        border: none !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        background: transparent !important;
-    }
-    .timetable-shell {
-        page-break-inside: avoid;
-        page-break-after: always;
-        margin: 0 0 20px 0 !important;
-        width: 100% !important;
-        height: auto !important;
-        display: block;
-    }
-    .timetable-shell:last-of-type {
-        page-break-after: auto;
-    }
-    .timetable-shell h3 {
-        margin: 0 0 10px 0 !important;
-        font-size: 16pt !important;
-    }
-    .timetable-grid {
-        width: 85% !important;
-        max-width: 100vw !important;
-        margin: 0 auto !important;
-        table-layout: fixed !important;
-        border-collapse: collapse !important;
-    }
-    .timetable-grid th, .timetable-grid td {
-        padding: 2px !important;
-        overflow: hidden !important;
-        word-wrap: break-word !important;
-        overflow-wrap: break-word !important;
-        white-space: normal !important;
-        border: 1px solid #000 !important;
-        color: #000 !important;
-        text-align: center;
-        vertical-align: middle;
-        font-size: 8.5pt !important;
-        line-height: 1.1 !important;
-    }
-    .timetable-grid strong {
-        color: #000 !important;
-        font-weight: bold !important;
-        display: block;
-    }
-}
-.timetable-shell {
-    overflow-x: auto;
-    width: 100%;
-}
-.timetable-grid {
-    width: 100%;
-    max-width: 1200px;
-    margin: 0 auto;
-    border-collapse: collapse;
-    font-size: 11px;
-    table-layout: fixed;
-}
-.timetable-grid th, .timetable-grid td {
-    padding: 6px 3px;
-    text-align: center;
-    vertical-align: middle;
-    line-height: 1.2;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-}
-.break-cell {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    transform: rotate(180deg);
-    white-space: nowrap;
-    text-align: center;
-    font-weight: bold;
-    color: var(--text-muted);
-    padding: 10px 5px !important;
-}
-.class-cell {
-    text-align: center;
-    vertical-align: middle;
-}
-</style>
 <section class="card">
     <div class="section-head">
         <div>
@@ -113,36 +9,36 @@
                 <p class="muted">{{ selected_batch.name }} | Semester {{ selected_batch.semester }}</p>
             {% endif %}
         </div>
-        <div style="display:flex; align-items:center; gap:10px;">
-            <form method="get" class="inline-form" style="margin:0;">
-                <label>Saved Timetable
-                    <select name="batch_id" onchange="this.form.submit()">
-                        {% for batch in batches %}
-                            <option value="{{ batch.id }}" {% if selected_batch and selected_batch.id == batch.id %}selected{% endif %}>
-                                {{ batch.name }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </label>
-            </form>
-            <button type="button" onclick="window.print()" class="primary" style="margin-top:20px;">Print</button>
-        </div>
+        <form method="get" class="inline-form">
+            <label>Saved Timetable
+                <select name="batch_id" onchange="this.form.submit()">
+                    {% for batch in batches %}
+                        <option value="{{ batch.id }}" {% if selected_batch and selected_batch.id == batch.id %}selected{% endif %}>
+                            {{ batch.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
     </div>
     {% if not sections %}
         <p>No timetable generated yet.</p>
     {% endif %}
     {% for section in sections %}
-        <div class="table-wrap timetable-shell">
-            <h3>Section {{ section }}</h3>
+        <div class="table-wrap timetable-shell" id="timetable-section-{{ section }}">
+            <div class="timetable-shell-header">
+                <h3>Section {{ section }}</h3>
+                <div class="timetable-shell-actions">
+                    <button type="button" class="btn-primary secondary" onclick="downloadTimetable('timetable-section-{{ section }}', 'PDF', '{{ selected_batch.name | default("Timetable", true) | replace(" ", "_") }}_Section_{{ section }}')"><i class='bx bxs-file-pdf'></i> PDF</button>
+                    <button type="button" class="btn-primary secondary" onclick="downloadTimetable('timetable-section-{{ section }}', 'PNG', '{{ selected_batch.name | default("Timetable", true) | replace(" ", "_") }}_Section_{{ section }}')"><i class='bx bxs-image'></i> PNG</button>
+                </div>
+            </div>
             <table class="timetable-grid">
                 <thead>
                     <tr>
-                        <th style="width: 35px;">Day<br>Time</th>
+                        <th>Day / Time</th>
                         {% for column in timetable_columns %}
-                            <th class="{% if column.type == 'break' %}break-head{% endif %}"
-                                {% if column.type == 'break' %}style="width: 30px;"{% else %}style="width: 11%;"{% endif %}>
-                                {{ column.label|safe }}
-                            </th>
+                            <th class="{% if column.type == 'break' %}break-head{% endif %}">{{ column.label|safe }}</th>
                         {% endfor %}
                     </tr>
                 </thead>
@@ -150,58 +46,60 @@
                     {% for day in days %}
                         {% set day_idx = loop.index0 %}
                         <tr>
-                            <th>{{ day[:3] }}</th>
-                                {% set skip = namespace(value=False) %}
-                                {% for column in timetable_columns %}
-                                    {% if skip.value %}
-                                        {% set skip.value = False %}
-                                    {% elif column.type == 'break' %}
-                                        {% if day_idx == 0 %}
-                                            <td rowspan="{{ days|length }}" class="break-cell">{{ column.value }}</td>
-                                        {% endif %}
-                                    {% else %}
-                                        {% set entries = timetable_map.get((section, day), {}).get(column.value) %}
-                                        {% set is_lab_start = namespace(value=False) %}
-                                        
-                                        {% if entries %}
-                                            {% set next_index = loop.index0 + 1 %}
-                                            {% if next_index < timetable_columns|length %}
-                                                {% set next_column = timetable_columns[next_index] %}
-                                                {% if next_column.type != 'break' %}
-                                                    {% set next_entries = timetable_map.get((section, day), {}).get(next_column.value) %}
-                                                    {% if next_entries and entries[0].lab_batch %}
-                                                        {# This and the next block are identically assigned - a Lab session! #}
-                                                        {% set is_lab_start.value = True %}
-                                                        {% set skip.value = True %}
-                                                    {% endif %}
+                            <th>{{ day }}</th>
+                            {% set skip = namespace(value=False) %}
+                            {% for column in timetable_columns %}
+                                {% if skip.value %}
+                                    {% set skip.value = False %}
+                                {% elif column.type == 'break' %}
+                                    {% if day_idx == 0 %}
+                                        <td rowspan="{{ days|length }}" class="break-cell">{{ column.value }}</td>
+                                    {% endif %}
+                                {% else %}
+                                    {% set entries = timetable_map.get((section, day), {}).get(column.value) %}
+                                    {% set is_lab_start = namespace(value=False) %}
+                                    
+                                    {% if entries %}
+                                        {% set next_index = loop.index0 + 1 %}
+                                        {% if next_index < timetable_columns|length %}
+                                            {% set next_column = timetable_columns[next_index] %}
+                                            {% if next_column.type != 'break' %}
+                                                {% set next_entries = timetable_map.get((section, day), {}).get(next_column.value) %}
+                                                {% if next_entries and entries[0].lab_batch %}
+                                                    {% set is_lab_start.value = True %}
+                                                    {% set skip.value = True %}
                                                 {% endif %}
                                             {% endif %}
                                         {% endif %}
-
-                                        {% if is_lab_start.value %}
-                                            <td class="class-cell lab-cell" colspan="2" style="padding: 2px;">
-                                                <div style="display:flex; flex-direction:column; gap:4px; justify-content:center; height:100%;">
-                                                    {% for e in entries %}
-                                                    <div>
-                                                        <strong class="print-black">{% if not e.subject.code.startswith('NA') %}{{ e.subject.code }} {% endif %}{{ e.subject.short_name or e.subject.name }} {{ e.lab_batch }} {{ e.room }}</strong>
-                                                        <div style="margin-top: 1px;">{{ e.faculty.name if e.faculty else "Free Lecture" }}</div>
-                                                    </div>
-                                                    {% endfor %}
-                                                </div>
-                                            </td>
-                                        {% else %}
-                                            <td class="class-cell">
-                                                {% if entries %}
-                                                    {% set entry = entries[0] %}
-                                                    <strong class="print-black">{% if not entry.subject.code.startswith('NA') %}{{ entry.subject.code }} {% endif %}{{ entry.subject.short_name or entry.subject.name }}</strong>
-                                                    <div style="margin-top: 1px;">{{ entry.faculty.name if entry.faculty else "Free Lecture" }}</div>
-                                                {% else %}
-                                                    -
-                                                {% endif %}
-                                            </td>
-                                        {% endif %}
                                     {% endif %}
-                                {% endfor %}
+
+                                    {% if is_lab_start.value %}
+                                        <td class="class-cell" colspan="2">
+                                            {% for entry in entries %}
+                                                <div>
+                                                    <strong>{{ entry.subject.code or entry.subject.short_name or entry.subject.name }}</strong><br>
+                                                    {{ entry.subject.name }} ({{ entry.lab_batch }})<br>
+                                                    {{ entry.faculty.name if entry.faculty else "Flexible" }}<br>
+                                                    <span class="muted">Room: {{ entry.room }}</span>
+                                                </div>
+                                                {% if not loop.last %}<br>{% endif %}
+                                            {% endfor %}
+                                        </td>
+                                    {% else %}
+                                        <td class="class-cell">
+                                            {% if entries %}
+                                                {% set entry = entries[0] %}
+                                                <strong>{{ entry.subject.code or entry.subject.short_name or entry.subject.name }}</strong><br>
+                                                {{ entry.subject.name }}<br>
+                                                {{ entry.faculty.name if entry.faculty else "Flexible" }}<br>
+                                                <span class="muted">Room: {{ entry.room }}</span>
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
                         </tr>
                     {% endfor %}
                 </tbody>
