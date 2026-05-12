@@ -20,9 +20,13 @@ def create_app():
             database_url = database_url.replace("postgresql://", "postgresql+pg8000://", 1)
         app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     else:
-        # For Vercel deployments, using SQLite is a fallback.
-        # We use a relative path that works on both Windows and Linux.
-        app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///timetable.db"
+        # Vercel's filesystem is read-only; /tmp is the only writable directory.
+        # Fall back to a local path when running locally (non-Vercel).
+        if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"):
+            sqlite_path = "/tmp/timetable.db"
+        else:
+            sqlite_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "instance", "timetable.db")
+        app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{sqlite_path}"
         
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     
@@ -211,7 +215,9 @@ def ensure_schema():
 def rebuild_faculty_table(has_user_id):
     select_user_id = "user_id" if has_user_id else "NULL AS user_id"
 
-    db.session.execute(text("PRAGMA foreign_keys=OFF"))
+    # PRAGMA statements are SQLite-only
+    if db.engine.dialect.name == "sqlite":
+        db.session.execute(text("PRAGMA foreign_keys=OFF"))
     db.session.execute(text("ALTER TABLE faculty RENAME TO faculty_old"))
     db.session.execute(
         text(
@@ -236,7 +242,8 @@ def rebuild_faculty_table(has_user_id):
         )
     )
     db.session.execute(text("DROP TABLE faculty_old"))
-    db.session.execute(text("PRAGMA foreign_keys=ON"))
+    if db.engine.dialect.name == "sqlite":
+        db.session.execute(text("PRAGMA foreign_keys=ON"))
     db.session.commit()
 
 
@@ -247,7 +254,8 @@ def rebuild_timetable_entry_table():
     select_lab_batch = "lab_batch" if "lab_batch" in old_columns else "NULL AS lab_batch"
     select_room = "room" if "room" in old_columns else "NULL AS room"
 
-    db.session.execute(text("PRAGMA foreign_keys=OFF"))
+    if db.engine.dialect.name == "sqlite":
+        db.session.execute(text("PRAGMA foreign_keys=OFF"))
     db.session.execute(text("ALTER TABLE timetable_entry RENAME TO timetable_entry_old"))
     db.session.execute(
         text(
@@ -279,7 +287,8 @@ def rebuild_timetable_entry_table():
         )
     )
     db.session.execute(text("DROP TABLE timetable_entry_old"))
-    db.session.execute(text("PRAGMA foreign_keys=ON"))
+    if db.engine.dialect.name == "sqlite":
+        db.session.execute(text("PRAGMA foreign_keys=ON"))
     db.session.commit()
 
 

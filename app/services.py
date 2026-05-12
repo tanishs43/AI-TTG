@@ -1,12 +1,10 @@
 import math
 import random
 from collections import defaultdict
-from ortools.sat.python import cp_model
 
 from .models import TimetableBatch, TimetableEntry, db
 
 
-DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
 def get_slot_template(semester):
@@ -180,6 +178,15 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id, room_co
 
     if not all_registrations_by_section:
         return generated_entries, unassigned
+
+    # Lazy import: ortools is not available on Vercel; only loaded when solver runs
+    try:
+        from ortools.sat.python import cp_model
+    except ImportError as exc:
+        raise RuntimeError(
+            "The OR-Tools library is not installed in this environment. "
+            "Timetable generation is unavailable."
+        ) from exc
 
     num_sections = len(all_registrations_by_section)
     print(f"\n*** SOLVER: Building unified model for {num_sections} section(s) ***")
