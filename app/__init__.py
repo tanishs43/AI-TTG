@@ -7,7 +7,18 @@ from .models import FacultyCapability, TimetableBatch, User, db
 
 def create_app():
     app = Flask(__name__)
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
+    secret_key = os.environ.get("SECRET_KEY")
+    if not secret_key:
+        import warnings
+        warnings.warn(
+            "SECRET_KEY environment variable is not set. Using insecure default. "
+            "Sessions WILL break across serverless cold starts on Vercel. "
+            "Set SECRET_KEY in your Vercel project environment variables.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        secret_key = "dev-secret-key-change-me"
+    app.config["SECRET_KEY"] = secret_key
     
     database_url = os.environ.get("DATABASE_URL")
     if database_url and database_url.strip():
