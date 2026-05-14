@@ -34,6 +34,11 @@ def current_user():
     return User.query.get(user_id)
 
 
+@main.context_processor
+def inject_current_user():
+    return dict(current_user=current_user())
+
+
 def admin_department_context(user=None):
     user = user or current_user()
     if not user or user.role != "admin":
@@ -352,6 +357,7 @@ def login():
 
         session["user_id"] = user.id
         session["role"] = user.role
+        session["name"] = user.name
         session["department"] = normalized_department(user.department) or "CSIT"
 
         if user.role == "admin":

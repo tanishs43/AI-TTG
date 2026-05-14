@@ -36,7 +36,7 @@
             </div>
             <div class="sidebar-spacer"></div>
             <div class="sidebar-footer">
-                <a href="{{ url_for('main.logout') }}" class="logout-btn"><i class='bx bx-log-out-circle'></i> Terminate Session</a>
+                <a href="{{ url_for('main.logout') }}" class="logout-btn"><i class='bx bx-log-out-circle'></i> Log Out</a>
             </div>
         </aside>
         {% endif %}
@@ -44,16 +44,19 @@
         <div class="main-content {% if not session.get('role') %}no-sidebar{% endif %}">
             {% if session.get('role') %}
             <header class="top-header">
-                <div class="search-wrap">
-                    <i class='bx bx-search-alt'></i>
-                    <input type="text" placeholder="Explore Campus Sync...">
-                </div>
+                <div style="flex:1;"></div>
                 <div class="top-actions">
-                    <button class="icon-btn" aria-label="Notifications"><i class='bx bx-bell'></i></button>
                     <div class="user-profile">
-                        <div class="avatar">{{ session.get('role')[0]|upper }}</div>
+                        {% set display_name = current_user.name if current_user else session.get('name', 'User') %}
+                        <div class="avatar">{{ display_name[0]|upper }}</div>
                         <div class="user-info">
-                            <span class="name">{{ session.get('role')|title }} Presence</span>
+                            <span class="name">
+                                {% if session.get('role') == 'admin' %}
+                                    {{ display_name }} - Admin
+                                {% else %}
+                                    {{ display_name }}
+                                {% endif %}
+                            </span>
                         </div>
                     </div>
                 </div>
