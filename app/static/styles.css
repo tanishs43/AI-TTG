@@ -597,6 +597,30 @@ tr:hover td { background-color: var(--surface-elevated); border-color: var(--tex
     transform: none !important;
 }
 
+/* Checkbox rows — checkbox LEFT of label text */
+.check-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 10px !important;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-primary);
+    padding: 4px 0;
+}
+.check-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
 /* Animations & Transitions */
 .hover-scale { transition: var(--transition-smooth); }
 .hover-scale:hover { transform: scale(1.02); }
