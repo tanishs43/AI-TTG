@@ -160,6 +160,253 @@ def validate_timetable(entries, teaching_slots):
     return len(errors) == 0, errors
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# GREEDY FALLBACK SCHEDULER  (used when OR-Tools is not installed)
+# Enforces the same hard constraints as the CP-SAT solver:
+#   • Faculty cannot be double-booked across sections at the same (day, slot)
+#   • Lab rooms can only host one batch at a time
+#   • At most one theory lecture per subject per day (spread across week)
+#   • Faculty weekly load cap is respected
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_timetable_greedy(all_registrations_by_section, batch_id, room_config=None):
+    """Pure-Python greedy scheduler — no OR-Tools dependency."""
+    if room_config is None:
+        room_config = {"default_room": None, "lab_room_1": "Lab-131", "lab_room_2": "Lab-132"}
+
+    lab_rooms = [room_config.get("lab_room_1", "Lab-131"), room_config.get("lab_room_2", "Lab-132")]
+    default_room = room_config.get("default_room")
+    batch_labels = ["A1", "A2"]
+
+    semester = all_registrations_by_section[0][0].subject.semester
+    slot_template, teaching_slots = get_slot_template(semester)
+    num_days = len(DAYS)
+    num_slots = len(teaching_slots)
+
+    # Build list of valid consecutive-slot pairs for labs
+    valid_lab_starts = []
+    for idx in range(len(slot_template) - 1):
+        if slot_template[idx]["is_break"] or slot_template[idx + 1]["is_break"]:
+            continue
+        v1 = slot_template[idx]["value"]
+        v2 = slot_template[idx + 1]["value"]
+        s1 = teaching_slots.index(v1)
+        s2 = teaching_slots.index(v2)
+        if s2 == s1 + 1:
+            valid_lab_starts.append(s1)
+
+    # Global constraint trackers  (shared across all sections)
+    # faculty_busy[(faculty_id, day_idx, slot_idx)] = True
+    faculty_busy = {}
+    # lab_room_busy[(room, day_idx, slot_idx)] = True
+    lab_room_busy = {}
+    # faculty weekly load used so far
+    faculty_weekly_used = defaultdict(int)
+
+    # Pre-load existing load from already-committed entries (other batches)
+    from .models import TimetableEntry as _TE
+    unique_fids = set()
+    for sec_regs in all_registrations_by_section:
+        for r in sec_regs:
+            if r.faculty_id is not None:
+                unique_fids.add(r.faculty_id)
+    if unique_fids:
+        existing_entries = _TE.query.filter(
+            _TE.faculty_id.in_(unique_fids),
+            _TE.batch_id != batch_id
+        ).all()
+        for entry in existing_entries:
+            faculty_weekly_used[entry.faculty_id] += 1
+            if entry.day in DAYS and entry.time_slot in teaching_slots:
+                d = DAYS.index(entry.day)
+                s = teaching_slots.index(entry.time_slot)
+                faculty_busy[(entry.faculty_id, d, s)] = True
+
+    generated_entries = []
+    unassigned = []
+
+    rng = random.Random()
+
+    for sec_regs in all_registrations_by_section:
+        if not sec_regs:
+            continue
+        section = sec_regs[0].preferred_section
+
+        # Per-section slot occupancy: (batch_label or "theory", day_idx, slot_idx) = True
+        # "theory" = full-section theory class (occupies both batches implicitly)
+        sec_busy = {}  # (day_idx, slot_idx) -> True  (any usage in this section)
+
+        # Group registrations by subject
+        subj_regs = defaultdict(list)
+        for r in sec_regs:
+            subj_regs[r.subject_id].append(r)
+
+        # Shuffle subjects for variety
+        subj_ids = list(subj_regs.keys())
+        rng.shuffle(subj_ids)
+
+        # ── 1. Schedule LABS first (they're harder to place) ───────────────
+        for subj_id in subj_ids:
+            regs = subj_regs[subj_id]
+            subject = regs[0].subject
+            req_lab = required_lab_sessions(subject)
+            if req_lab == 0:
+                continue
+
+            # Pick faculty for lab (first available active registration)
+            lab_faculty_id = None
+            for r in regs:
+                if r.faculty_id is not None:
+                    lab_faculty_id = r.faculty_id
+                    break
+
+            # Check weekly load cap (lab counts as 2 slots per batch, 4 total per session)
+            fac = regs[0].faculty if hasattr(regs[0], "faculty") else None
+            max_load = getattr(fac, "max_weekly_load", 99) if fac else 99
+
+            sessions_placed = 0
+            day_order = list(range(num_days))
+            rng.shuffle(day_order)
+
+            for _ in range(req_lab):
+                placed = False
+                for d in day_order:
+                    for ss in valid_lab_starts:
+                        s2 = ss + 1
+                        # Check both consecutive slots free in this section
+                        if sec_busy.get((d, ss)) or sec_busy.get((d, s2)):
+                            continue
+                        # Check faculty not busy (both slots)
+                        if lab_faculty_id:
+                            if faculty_busy.get((lab_faculty_id, d, ss)) or \
+                               faculty_busy.get((lab_faculty_id, d, s2)):
+                                continue
+                            # Check weekly load (2 extra slots for this session)
+                            if max_load > 0 and faculty_weekly_used[lab_faculty_id] + 2 > max_load:
+                                continue
+                        # Check lab rooms free
+                        if lab_room_busy.get((lab_rooms[0], d, ss)) or \
+                           lab_room_busy.get((lab_rooms[0], d, s2)) or \
+                           lab_room_busy.get((lab_rooms[1], d, ss)) or \
+                           lab_room_busy.get((lab_rooms[1], d, s2)):
+                            continue
+
+                        # Place it!
+                        for slot_idx, slot_label in [(ss, teaching_slots[ss]), (s2, teaching_slots[s2])]:
+                            for bi, blabel in enumerate(batch_labels):
+                                generated_entries.append(TimetableEntry(
+                                    batch_id=batch_id,
+                                    day=DAYS[d],
+                                    time_slot=slot_label,
+                                    section=section,
+                                    lab_batch=blabel,
+                                    room=lab_rooms[bi],
+                                    faculty_id=lab_faculty_id,
+                                    subject_id=subj_id,
+                                ))
+                            sec_busy[(d, slot_idx)] = True
+                            lab_room_busy[(lab_rooms[0], d, slot_idx)] = True
+                            lab_room_busy[(lab_rooms[1], d, slot_idx)] = True
+
+                        if lab_faculty_id:
+                            faculty_busy[(lab_faculty_id, d, ss)] = True
+                            faculty_busy[(lab_faculty_id, d, s2)] = True
+                            faculty_weekly_used[lab_faculty_id] += 2
+
+                        sessions_placed += 1
+                        placed = True
+                        break
+                    if placed:
+                        break
+
+                if not placed:
+                    rep = regs[0]
+                    unassigned.append({
+                        "faculty": getattr(rep.faculty, "name", "Unassigned") if rep.faculty else "Unassigned",
+                        "subject": subject.name,
+                        "section": section,
+                        "remaining_slots": req_lab - sessions_placed,
+                        "type": "lab",
+                    })
+                    break
+
+        # ── 2. Schedule THEORY lectures ─────────────────────────────────────
+        for subj_id in subj_ids:
+            regs = subj_regs[subj_id]
+            subject = regs[0].subject
+            req_theory = required_theory_slots(subject)
+            if req_theory == 0:
+                continue
+
+            # Pick faculty
+            theory_faculty_id = None
+            for r in regs:
+                if r.faculty_id is not None:
+                    theory_faculty_id = r.faculty_id
+                    break
+
+            fac = regs[0].faculty if hasattr(regs[0], "faculty") else None
+            max_load = getattr(fac, "max_weekly_load", 99) if fac else 99
+
+            placed_count = 0
+            # Track which days already have this subject (max 1 per day)
+            used_days = set()
+            day_order = list(range(num_days))
+            rng.shuffle(day_order)
+
+            for _ in range(req_theory):
+                placed = False
+                for d in day_order:
+                    if d in used_days:
+                        continue
+                    slot_order = list(range(num_slots))
+                    rng.shuffle(slot_order)
+                    for s in slot_order:
+                        if sec_busy.get((d, s)):
+                            continue
+                        if theory_faculty_id:
+                            if faculty_busy.get((theory_faculty_id, d, s)):
+                                continue
+                            if max_load > 0 and faculty_weekly_used[theory_faculty_id] + 1 > max_load:
+                                continue
+
+                        # Place it
+                        generated_entries.append(TimetableEntry(
+                            batch_id=batch_id,
+                            day=DAYS[d],
+                            time_slot=teaching_slots[s],
+                            section=section,
+                            lab_batch=None,
+                            room=default_room,
+                            faculty_id=theory_faculty_id,
+                            subject_id=subj_id,
+                        ))
+                        sec_busy[(d, s)] = True
+                        if theory_faculty_id:
+                            faculty_busy[(theory_faculty_id, d, s)] = True
+                            faculty_weekly_used[theory_faculty_id] += 1
+                        used_days.add(d)
+                        placed_count += 1
+                        placed = True
+                        break
+                    if placed:
+                        break
+
+                if not placed:
+                    rep = regs[0]
+                    unassigned.append({
+                        "faculty": getattr(rep.faculty, "name", "Unassigned") if rep.faculty else "Unassigned",
+                        "subject": subject.name,
+                        "section": section,
+                        "remaining_slots": req_theory - placed_count,
+                        "type": "theory",
+                    })
+                    break
+
+    print(f"[Greedy] Generated {len(generated_entries)} entries, {len(unassigned)} unassigned.")
+    return generated_entries, unassigned
+
+
 def build_timetable_all_sections(all_registrations_by_section, batch_id, room_config=None):
     """Build timetables for ALL sections in a single CP-SAT model.
 
@@ -180,14 +427,18 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id, room_co
     if not all_registrations_by_section:
         return generated_entries, unassigned
 
-    # Lazy import: ortools is not available on Vercel; only loaded when solver runs
+    # Lazy import: ortools is not available on Vercel; fall back to greedy scheduler
     try:
         from ortools.sat.python import cp_model
-    except ImportError as exc:
-        raise RuntimeError(
-            "The OR-Tools library is not installed in this environment. "
-            "Timetable generation is unavailable."
-        ) from exc
+        _USE_ORTOOLS = True
+    except ImportError:
+        _USE_ORTOOLS = False
+        print("WARNING: OR-Tools not available. Using greedy fallback scheduler.")
+
+    if not _USE_ORTOOLS:
+        return _build_timetable_greedy(
+            all_registrations_by_section, batch_id, room_config
+        )
 
     num_sections = len(all_registrations_by_section)
     print(f"\n*** SOLVER: Building unified model for {num_sections} section(s) ***")
