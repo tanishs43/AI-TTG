@@ -1,12 +1,14 @@
 import math
 import random
 from collections import defaultdict
+from functools import lru_cache
 
 from .models import TimetableBatch, TimetableEntry, db
 
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
+@lru_cache(maxsize=8)
 def get_slot_template(semester):
     teaching_slots = []
     slot_template = []
@@ -74,6 +76,7 @@ def get_slot_template(semester):
     return slot_template, teaching_slots
 
 
+@lru_cache(maxsize=8)
 def get_timetable_columns(semester):
     slot_template, _ = get_slot_template(semester)
     return slot_template

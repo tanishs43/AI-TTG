@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .models import (
@@ -17,6 +18,7 @@ from .models import (
     User,
     db,
 )
+from sqlalchemy import text
 from .services import DAYS, create_timetable_batch, get_timetable_columns
 
 
@@ -59,7 +61,12 @@ def faculty_timetable_rows(faculty_id, batch_id):
         return [], defaultdict(dict)
 
     entries = (
-        TimetableEntry.query.filter_by(faculty_id=faculty_id, batch_id=batch_id)
+        TimetableEntry.query
+        .filter_by(faculty_id=faculty_id, batch_id=batch_id)
+        .options(
+            joinedload(TimetableEntry.subject),
+            joinedload(TimetableEntry.faculty),
+        )
         .order_by(TimetableEntry.day, TimetableEntry.time_slot)
         .all()
     )
@@ -142,17 +149,13 @@ def active_subjects_query(department, semester):
 
 
 def available_departments():
-    subject_departments = {
-        row[0]
-        for row in db.session.query(Subject.department).distinct().all()
-        if row[0]
-    }
-    faculty_departments = {
-        row[0]
-        for row in db.session.query(Faculty.department).distinct().all()
-        if row[0]
-    }
-    return sorted(subject_departments | faculty_departments)
+    # Single UNION query instead of two separate DISTINCT round-trips
+    rows = db.session.execute(text(
+        "SELECT DISTINCT department FROM subject WHERE department IS NOT NULL AND department != '' "
+        "UNION "
+        "SELECT DISTINCT department FROM faculty WHERE department IS NOT NULL AND department != ''"
+    )).fetchall()
+    return sorted(r[0] for r in rows)
 
 
 def available_batches():
@@ -407,10 +410,20 @@ def admin_dashboard():
     entries = []
     if selected_batch:
         entries = (
-            TimetableEntry.query.filter_by(batch_id=selected_batch.id)
+            TimetableEntry.query
+            .filter_by(batch_id=selected_batch.id)
+            .options(
+                joinedload(TimetableEntry.subject),
+                joinedload(TimetableEntry.faculty),
+            )
             .order_by(TimetableEntry.section, TimetableEntry.day, TimetableEntry.time_slot)
             .all()
         )
+
+    # Derive counts from already-loaded data instead of extra COUNT queries
+    subject_count = db.session.execute(
+        text("SELECT COUNT(*) FROM subject WHERE is_active = TRUE")
+    ).scalar() or 0
 
     return render_template(
         "admin_dashboard.html",
@@ -422,7 +435,7 @@ def admin_dashboard():
         capabilities=capabilities,
         timetable_entries=entries,
         faculty_count=len(faculties),
-        subject_count=Subject.query.count(),
+        subject_count=subject_count,
         registration_count=len(capabilities),
         timetable_count=len(entries),
         available_departments=available_departments(),

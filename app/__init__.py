@@ -5,6 +5,10 @@ import os
 
 from .models import FacultyCapability, TimetableBatch, User, db
 
+# Schema version — bump this whenever you add a new column / table so that
+# ensure_schema() re-runs automatically on the next cold start.
+_SCHEMA_VERSION = 8
+
 def create_app():
     app = Flask(__name__)
     secret_key = os.environ.get("SECRET_KEY")
@@ -40,12 +44,28 @@ def create_app():
         app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{sqlite_path}"
         
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    
-    # Configure connection pooling to handle PostgreSQL connection drops
-    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-        "pool_pre_ping": True,
-        "pool_recycle": 300,
-    }
+
+    # ── Connection pool tuning ─────────────────────────────────────────────
+    # On Vercel every function invocation is short-lived.  Using a persistent
+    # pool causes idle connections to be killed by Supabase (idle-timeout),
+    # which then triggers expensive reconnects.  NullPool avoids that: each
+    # request opens + closes its own connection cheaply via pg8000.
+    _is_vercel = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+    _is_postgres = bool(database_url) if 'database_url' in dir() else bool(os.environ.get("DATABASE_URL"))
+
+    if _is_vercel and _is_postgres:
+        from sqlalchemy.pool import NullPool
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+            "poolclass": NullPool,
+            "connect_args": {"timeout": 10},
+        }
+    else:
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+            "pool_pre_ping": True,
+            "pool_recycle": 280,
+            "pool_size": 5,
+            "max_overflow": 2,
+        }
 
     db.init_app(app)
 
@@ -56,7 +76,7 @@ def create_app():
     with app.app_context():
         try:
             db.create_all()
-            ensure_schema()
+            _maybe_ensure_schema(app)
             seed_admin()
         except Exception as e:
             # On Vercel build environment, database access might fail
@@ -64,6 +84,57 @@ def create_app():
             app.logger.warning(f"Database initialization skipped or failed: {e}")
 
     return app
+
+
+def _maybe_ensure_schema(app):
+    """Only run the expensive ensure_schema() migration when the stored
+    schema version in the DB is behind _SCHEMA_VERSION.  This cuts
+    ~20 round-trip ALTER TABLE / PRAGMA queries on every cold start down
+    to a single fast SELECT."""
+    try:
+        row = db.session.execute(
+            text("SELECT value FROM _app_meta WHERE key = 'schema_version' LIMIT 1")
+        ).fetchone()
+        stored = int(row[0]) if row else 0
+    except Exception:
+        # Table doesn't exist yet — run full migration
+        stored = 0
+
+    if stored >= _SCHEMA_VERSION:
+        app.logger.debug("Schema up-to-date (v%s). Skipping migration.", _SCHEMA_VERSION)
+        return
+
+    app.logger.info("Schema migration needed (stored=%s, target=%s).", stored, _SCHEMA_VERSION)
+    ensure_schema()
+    _write_schema_version()
+
+
+def _write_schema_version():
+    """Persist the current schema version to a tiny metadata table."""
+    try:
+        db.session.execute(text(
+            "CREATE TABLE IF NOT EXISTS _app_meta "
+            "(key VARCHAR(60) PRIMARY KEY, value VARCHAR(120) NOT NULL)"
+        ))
+        db.session.execute(text(
+            "INSERT INTO _app_meta (key, value) VALUES ('schema_version', :v) "
+            "ON CONFLICT (key) DO UPDATE SET value = excluded.value"
+        ), {"v": str(_SCHEMA_VERSION)})
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        # SQLite doesn't support ON CONFLICT on INSERT for all versions — try upsert differently
+        try:
+            db.session.execute(text(
+                "CREATE TABLE IF NOT EXISTS _app_meta "
+                "(key VARCHAR(60) PRIMARY KEY, value VARCHAR(120) NOT NULL)"
+            ))
+            db.session.execute(text(
+                "INSERT OR REPLACE INTO _app_meta (key, value) VALUES ('schema_version', :v)"
+            ), {"v": str(_SCHEMA_VERSION)})
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
 
 def ensure_schema():
