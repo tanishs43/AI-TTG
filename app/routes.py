@@ -1052,7 +1052,18 @@ def generate():
         "lab_room_2": request.form.get("lab_room_2", "").strip() or "Lab-132",
     }
 
-    batch, _, unassigned = create_timetable_batch(all_registrations_by_section, semester, room_config=room_config)
+    try:
+        batch, _, unassigned = create_timetable_batch(all_registrations_by_section, semester, room_config=room_config)
+    except Exception as gen_err:
+        import traceback
+        traceback.print_exc()
+        flash(
+            f"Timetable generation failed: {str(gen_err)}. "
+            "Check server logs for the full traceback.",
+            "error",
+        )
+        return redirect(url_for("main.admin_dashboard", department=department, semester=semester))
+
     batch.name = batch_name
     db.session.commit()
 

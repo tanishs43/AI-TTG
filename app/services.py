@@ -153,8 +153,9 @@ def validate_timetable(entries, teaching_slots):
     # Check for batch conflicts within same section
     for (sec, batch, day, slot), e_list in batch_usage.items():
         if len(e_list) > 1:
-            subjects = ", ".join(set(e.subject.name for e in e_list))
-            errors.append(f"Batch conflict: Section {sec} Batch {batch} has multiple assignments ({subjects}) on {day} at {slot}")
+            # Use subject_id to avoid lazy-loading issues on uncommitted entries
+            subj_ids = ", ".join(str(e.subject_id) for e in e_list)
+            errors.append(f"Batch conflict: Section {sec} Batch {batch} has multiple assignments (subject_ids: {subj_ids}) on {day} at {slot}")
 
     return len(errors) == 0, errors
 
@@ -687,6 +688,7 @@ def build_timetable_all_sections(all_registrations_by_section, batch_id, room_co
 def create_timetable_batch(all_registrations_by_section, semester, room_config=None):
     max_retries = 2 # Reduced retries for performance
     last_unassigned = []
+    last_validation_errors = []
     _, teaching_slots = get_slot_template(semester)
 
     for attempt in range(max_retries):
@@ -704,29 +706,46 @@ def create_timetable_batch(all_registrations_by_section, semester, room_config=N
             )
 
             is_valid, validation_errors = validate_timetable(all_entries, teaching_slots)
-            
+
             if is_valid:
                 db.session.add_all(all_entries)
                 db.session.commit()
+                print(f"Attempt {attempt + 1} succeeded with {len(all_entries)} entries.")
                 return batch, all_entries, all_unassigned
             else:
-                db.session.delete(batch)
-                db.session.flush()
+                print(f"Attempt {attempt + 1} failed validation: {validation_errors}")
+                last_validation_errors = validation_errors
                 last_unassigned = all_unassigned
+                db.session.rollback()
         except Exception as e:
-            print(f"Error during attempt {attempt+1}: {str(e)}")
+            import traceback
+            print(f"Error during attempt {attempt + 1}: {str(e)}")
+            traceback.print_exc()
             db.session.rollback()
 
-    # Final attempt fallback
-    batch = TimetableBatch(
-        name=f"Sem {semester} Timetable (Final)",
-        semester=semester,
-    )
-    db.session.add(batch)
-    db.session.flush()
-    all_entries, all_unassigned = build_timetable_all_sections(
-        all_registrations_by_section, batch.id, room_config=room_config
-    )
-    db.session.add_all(all_entries)
-    db.session.commit()
-    return batch, all_entries, all_unassigned
+    # Final attempt fallback — commit whatever we get even if not perfectly valid
+    print("\n--- Final Fallback Attempt ---")
+    try:
+        batch = TimetableBatch(
+            name=f"Sem {semester} Timetable (Final)",
+            semester=semester,
+        )
+        db.session.add(batch)
+        db.session.flush()
+        all_entries, all_unassigned = build_timetable_all_sections(
+            all_registrations_by_section, batch.id, room_config=room_config
+        )
+        db.session.add_all(all_entries)
+        db.session.commit()
+        print(f"Final fallback committed {len(all_entries)} entries.")
+        return batch, all_entries, all_unassigned
+    except Exception as e:
+        import traceback
+        print(f"Final fallback also failed: {str(e)}")
+        traceback.print_exc()
+        db.session.rollback()
+        raise RuntimeError(
+            f"Timetable generation failed after all attempts. "
+            f"Last validation errors: {last_validation_errors}. "
+            f"Root cause: {str(e)}"
+        ) from e
